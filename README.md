@@ -10,6 +10,7 @@ For example, to find out how much disk space the namespace “Tenant A” alone 
 That's exactly what the script does.
 It first lists all chunks, removes all but one of the chunks that are used multiple times and calculates how much memory these chunks require.
 ## Usage
+### Syntax
 ```bash
 ./PBS_Chunk_Checker "<PATH_TO_DATASTORE>" "<SERCHPATH>"
 ```
@@ -22,5 +23,6 @@ Check the size of the VM with ID 100 within the namespace “MyNamespace”:
 ```bash
 ./PBS_Chunk_Checker "/MyDatastore" "/ns/MyNamespace/vm/100"
 ```
+### Recommendation for use
 Depending on the size of the object to be searched, the evaluation can take several hours.
 I therefore recommend carrying out the evaluation in a “screen” and also redirecting the output to a file.
