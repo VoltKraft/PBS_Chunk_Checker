@@ -22,3 +22,5 @@ Check the size of the VM with ID 100 within the namespace “MyNamespace”:
 ```bash
 ./PBS_Chunk_Checker "/MyDatastore" "/ns/MyNamespace/vm/100"
 ```
+Depending on the size of the object to be searched, the evaluation can take several hours.
+I therefore recommend carrying out the evaluation in a “screen” and also redirecting the output to a file.
