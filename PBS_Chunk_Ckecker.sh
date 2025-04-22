@@ -97,4 +97,4 @@ duration=$((end - start))
 echo "Duration of the evaluation: $duration seconds"
 
 percentage=$((chunk_reuse_counter * 1000 / chunk_counter))
-echo "$chunk_reuse_counter/$chunk_counter $((percentage / 10)).$((percentage % 10))% wiederverwertete Chunks"
+echo "$chunk_reuse_counter/$chunk_counter $((percentage / 10)).$((percentage % 10))% Chunks used several times"
