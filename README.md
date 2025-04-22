@@ -1,7 +1,7 @@
 # PBS_Chunk_Checker
 ## What is this about
 ### The Problem
-
+I was faced with the problem that I wanted to know how much disk space the backup of a single VM or a single namespace consumes.
 
 ## Usage
 ```bash
