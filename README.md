@@ -26,3 +26,6 @@ Check the size of the VM with ID 100 within the namespace “MyNamespace”:
 ### Recommendation for use
 Depending on the size of the object to be searched, the evaluation can take several hours.
 I therefore recommend carrying out the evaluation in a [screen](https://www.gnu.org/software/screen/manual/screen.html "Screen User's Manual") and also redirecting the output to a file.
+
+
+screen -dmS Name Befehl
