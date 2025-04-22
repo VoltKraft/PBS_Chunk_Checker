@@ -1,37 +1,24 @@
 #!/bin/bash
 
-# Pfad, in dem gesucht werden soll
-#SEARCH_PATH="/SSD/ns/Alte_Landstrasse/vm/100/2025-01-05T22:45:03Z"
 SEARCH_PATH="$1$2"
-#SEARCH_PATH="/test"
 CHUNK_PATH="$1/.chunks"
 
 
-# Array außerhalb der Funktion deklarieren
 declare -a file_list
 declare -a chunk_list
 declare -a chunk_reuse_counter
 declare -a chunk_counter
 
-#file_list=("/SSD/ns/Alte_Landstrasse/vm/100/2025-04-17T16:45:01Z/drive-sata0.img.fidx")
 
-
-# Funktion zum Suchen von .fidx und .didx Dateien
 find_files() {
     local search_path="$1"
-    
-    # Alle .fidx und .didx Dateien mit dem angegebenen Pfad finden und in file_list speichern
     while IFS= read -r file; do
-        file_list+=("$file")  # Füge die Datei zum Array hinzu
+        file_list+=("$file")
         echo Datei gefunden: $file
     done < <(find "$search_path" -type f \( -name "*.fidx" -o -name "*.didx" \))
 }
 
-# Funktion, die alle Chunks aus einer .fidx-Datei extrahiert und in ein assoziatives Array schreibt
 save_chunks() {
-    #local fidx_file="$1"
-    #local -n chunk_list="$2"  # Referenz auf das Array
-
     local in_chunk_section=0
 
     while IFS= read -r line; do
@@ -43,7 +30,7 @@ save_chunks() {
         if [[ $in_chunk_section -eq 1 ]]; then
             if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
                 digest="${BASH_REMATCH[1]}"
-                chunk_list+=("$digest")  # Fügt den Chunk zum Array hinzu
+                chunk_list+=("$digest") 
                 echo Chunk gefunden: $digest Index $i von ${#file_list[@]}
             else
                 in_chunk_section=0
@@ -67,18 +54,13 @@ remove_duplicates() {
             ((chunk_reuse_counter++))
         fi
     done
-
-    # Rückgabe: überschreibe Originalarray
     chunk_list=("${unique_array[@]}")
 }
 
 sum_chunk_sizes() {
     local total_size=0
-
-    # Schleife durch das Array und Berechnung des Index
     for i in "${!chunk_list[@]}"; do
-        digest="${chunk_list[$i]}"  # Element (Digest)
-        # Subfolder ist das erste zwei Zeichen vom Digest
+        digest="${chunk_list[$i]}" 
         subdir="${digest:0:4}"
         path="$CHUNK_PATH/$subdir/$digest"
 
