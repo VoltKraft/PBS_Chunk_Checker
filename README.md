@@ -11,7 +11,6 @@ That's exactly what the script does.
 It first lists all chunks, removes all but one of the chunks that are used multiple times and calculates how much memory these chunks require.
 ## Usage
 ### Syntax
-
 ```bash
 ./PBS_Chunk_Checker "<PATH_TO_DATASTORE>" "<SERCHPATH>"
 ```
