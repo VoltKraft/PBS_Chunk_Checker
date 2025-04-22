@@ -14,6 +14,11 @@ It first lists all chunks, removes all but one of the chunks that are used multi
 ./PBS_Chunk_Checker "<PATH_TO_DATASTORE>" "<SERCHPATH>"
 ```
 Example:
+Check the size of the namespace “MyNamespace”:
 ```bash
 ./PBS_Chunk_Checker "/MyDatastore" "/ns/MyNamespace"
+```
+Check the size of the VM with ID 100 within the namespace “MyNamespace”:
+```bash
+./PBS_Chunk_Checker "/MyDatastore" "/ns/MyNamespace/vm/100"
 ```
