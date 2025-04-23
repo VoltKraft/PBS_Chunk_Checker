@@ -1,8 +1,5 @@
 #!/bin/bash
 
-SEARCH_PATH="$1$2"
-CHUNK_PATH="$1/.chunks"
-
 
 declare -a file_list
 declare -a chunk_list
@@ -87,9 +84,38 @@ check_folder_exists() {
     fi
 }
 
+get_datastore_path() {
+    local datastore_name="$1"
+    local output
+    local path
+
+    output=$(proxmox-backup-manager datastore show "$datastore_name" --output-format json 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        echo "❌ Error: Datastore '$datastore_name' not found or command failed." >&2
+        exit 1
+    fi
+    path=$(echo "$output" | grep -oP '"path"\s*:\s*"\K[^"]+')
+
+    if [[ -n "$path" ]]; then
+        echo "$path"
+        return 0
+    else
+        echo "❌ Error: Path could not be extracted for datastore '$datastore_name'" >&2
+        exit 1
+    fi
+}
+
 
 ###################################################################################################
 
+
+datastore_path=$(get_datastore_path "$1") || exit 1
+echo "📁 Path to datastore: $datastore_path"
+SEARCH_PATH="$datastore_path$2"
+CHUNK_PATH="$datastore_path/.chunks"
+echo "📁 Search path: $SEARCH_PATH"
+echo "📁 Chunk path: $CHUNK_PATH"
 
 
 check_folder_exists $SEARCH_PATH
@@ -110,7 +136,10 @@ sum_chunk_sizes
 
 end=$(date +%s)
 duration=$((end - start))
-echo "Duration of the evaluation: $duration seconds"
+hours=$((duration / 3600))
+minutes=$(((duration % 3600) / 60))
+seconds=$((duration % 60))
+echo "⏱️ Evaluation duration: $hours hours, $minutes minutes, and $seconds seconds"
 
 percentage=$((chunk_reuse_counter * 1000 / chunk_counter))
 echo "$chunk_reuse_counter/$chunk_counter $((percentage / 10)).$((percentage % 10))% Chunks used several times"

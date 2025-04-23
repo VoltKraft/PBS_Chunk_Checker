@@ -12,16 +12,16 @@ It first lists all chunks, removes all but one of the chunks that are used multi
 ## Usage
 ### Syntax
 ```bash
-./PBS_Chunk_Checker "<PATH_TO_DATASTORE>" "<SERCHPATH>"
+./PBS_Chunk_Checker "<DATASTORE_NAME>" "<SERCHPATH>"
 ```
 Example:
 Check the size of the namespace “MyNamespace”:
 ```bash
-./PBS_Chunk_Checker "/MyDatastore" "/ns/MyNamespace"
+./PBS_Chunk_Checker "MyDatastore" "/ns/MyNamespace"
 ```
 Check the size of the VM with ID 100 within the namespace “MyNamespace”:
 ```bash
-./PBS_Chunk_Checker "/MyDatastore" "/ns/MyNamespace/vm/100"
+./PBS_Chunk_Checker "MyDatastore" "/ns/MyNamespace/vm/100"
 ```
 ### Recommendation for use
 Depending on the size of the object to be searched, the evaluation can take several hours.
