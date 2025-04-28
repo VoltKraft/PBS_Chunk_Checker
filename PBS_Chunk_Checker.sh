@@ -47,6 +47,10 @@ sum_chunk_sizes() {
     local total_size=0
     local i=0
     while IFS= read -r digest; do
+        subdir="${digest:0:4}"
+        path="$CHUNK_PATH/$subdir/$digest"
+        if [[ -f "$path" ]]; then
+            size=$(du -sb "$path" | cut -f1)
             total_size=$((total_size + size))
             echo -ne "\033[2A"
             echo -ne "\r\033[K📦 Chunk $((i + 1))/$chunk_unique_counter: $digest → $size Bytes"
@@ -63,6 +67,7 @@ sum_chunk_sizes() {
     clear
     echo "🧮 Total size: $total_size Bytes ($(numfmt --to=iec-i --suffix=B <<< "$total_size"))"
 }
+
 
 check_folder_exists() {
     local folder_path="$1"
