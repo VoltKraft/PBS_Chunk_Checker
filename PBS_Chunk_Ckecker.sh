@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#chunk_list_file = "chunk_list_file"
+chunk_list_file="chunk.list"
 
 declare -a file_list
 declare -a chunk_list
-declare -a chunk_reuse_counter
+declare -a chunk_unique_counter
 declare -a chunk_counter
 
 find_files() {
@@ -26,7 +26,7 @@ save_chunks() {
         if [[ $in_chunk_section -eq 1 ]]; then
             if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
                 digest="${BASH_REMATCH[1]}"
-                chunk_list+=("$digest")
+                echo "$digest" >> $chunk_list_file
                 echo -ne "\r\033[KChunk found: $digest | Index $i of ${#file_list[@]}"
             else
                 in_chunk_section=0
@@ -36,20 +36,12 @@ save_chunks() {
 }
 
 remove_duplicates() {
-    chunk_reuse_counter=0
-    local -a unique_array=()
-    declare -A seen=()
-    for item in "${chunk_list[@]}"; do
-        if [[ -z "${seen[$item]}" ]]; then
-            echo -ne "\r\033[K➕ New: $item"
-            unique_array+=("$item")
-            seen["$item"]=1
-        else
-            echo -ne "\r\033[KAlready available: $item"
-            ((chunk_reuse_counter++))
-        fi
-    done
-    chunk_list=("${unique_array[@]}")
+    local tmp_file
+    $tmp_file=$(mktemp)
+    $chunk_counter=$(wc -l < "$chunk_list_file")
+    sort -u "$chunk_list_file" > "$tmp_file"
+    chunk_unique_counter=$(wc -l < "$tmp_file")
+    mv "$tmp_file" "$chunk_list_file"
 }
 
 sum_chunk_sizes() {
@@ -110,7 +102,11 @@ get_datastore_path() {
 
 
 start=$(date +%s)
+
+touch $chunk_list_file
+
 clear
+
 datastore_path=$(get_datastore_path "$1") || exit 1
 echo "📁 Path to datastore: $datastore_path"
 SEARCH_PATH="$datastore_path$2"
@@ -127,7 +123,6 @@ for i in "${!file_list[@]}"; do
     save_chunks ${file_list[i]}
 done
 
-chunk_counter=${#chunk_list[@]}
 echo -e "\r\033[K➖ Removing duplicates"
 remove_duplicates
 
@@ -142,5 +137,7 @@ seconds=$((duration % 60))
 echo "⏱️ Evaluation duration: $hours hours, $minutes minutes, and $seconds seconds"
 
 percentage=$((chunk_reuse_counter * 1000 / chunk_counter))
-echo "$chunk_reuse_counter/$chunk_counter $((percentage / 10)).$((percentage % 10))% Chunks used several times"
+echo "$chunk_unique_counter/$chunk_counter $((percentage / 10)).$((percentage % 10))% Chunks used several times"
 echo "📁 Searched object: $datastore_path$SEARCH_PATH"
+
+rm $chunk_list_file
