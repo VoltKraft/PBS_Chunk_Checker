@@ -1,6 +1,6 @@
 #!/bin/bash
 
-chunk_list_file = "chunk_list_file"
+#chunk_list_file = "chunk_list_file"
 
 declare -a file_list
 declare -a chunk_list
@@ -79,7 +79,6 @@ sum_chunk_sizes() {
 
 check_folder_exists() {
     local folder_path="$1"
-    echo "❓ Check if folder "$folder_path" exists"
     if [[ -d "$folder_path" ]]; then
         echo "✅ Folder exists → $folder_path"
         return 0
@@ -125,12 +124,13 @@ start=$(date +%s)
 
 find_files "$SEARCH_PATH" file_list
 
+echo -e "\r\033[K💾 Saving used all Chunks:\n"
 for i in "${!file_list[@]}"; do
     save_chunks ${file_list[i]}
 done
 
 chunk_counter=${#chunk_list[@]}
-
+echo -e "\r\033[K➖ Removing duplicates:\n"
 remove_duplicates
 
 echo -e "\r\033[K➕Summ up chunks:\n\n"
