@@ -122,7 +122,7 @@ check_folder_exists $SEARCH_PATH
 
 find_files "$SEARCH_PATH" file_list
 
-echo -e "\r\033[K💾 Saving used all Chunks"
+echo -e "\r\033[K💾 Saving used all chunks"
 for i in "${!file_list[@]}"; do
     save_chunks ${file_list[i]}
 done
@@ -143,3 +143,4 @@ echo "⏱️ Evaluation duration: $hours hours, $minutes minutes, and $seconds s
 
 percentage=$((chunk_reuse_counter * 1000 / chunk_counter))
 echo "$chunk_reuse_counter/$chunk_counter $((percentage / 10)).$((percentage % 10))% Chunks used several times"
+echo "📁 Searched object: $datastore_path$SEARCH_PATH"
