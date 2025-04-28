@@ -7,7 +7,6 @@ declare -a chunk_list
 declare -a chunk_reuse_counter
 declare -a chunk_counter
 
-
 find_files() {
     local search_path="$1"
     while IFS= read -r file; do
