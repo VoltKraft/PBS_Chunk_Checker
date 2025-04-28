@@ -50,6 +50,7 @@ remove_duplicates() {
         fi
     done
     chunk_list=("${unique_array[@]}")
+    whait 10
 }
 
 sum_chunk_sizes() {
@@ -79,7 +80,6 @@ sum_chunk_sizes() {
 check_folder_exists() {
     local folder_path="$1"
     if [[ -d "$folder_path" ]]; then
-        echo "✅ Folder exists → $folder_path"
         return 0
     else
         echo "❌ Error: Folder does not exist → $folder_path" >&2
@@ -123,16 +123,16 @@ start=$(date +%s)
 
 find_files "$SEARCH_PATH" file_list
 
-echo -e "\r\033[K💾 Saving used all Chunks:"
+echo -e "\r\033[K💾 Saving used all Chunks"
 for i in "${!file_list[@]}"; do
     save_chunks ${file_list[i]}
 done
 
 chunk_counter=${#chunk_list[@]}
-echo -e "\r\033[K➖ Removing duplicates:\n"
+echo -e "\r\033[K➖ Removing duplicates\n"
 remove_duplicates
 
-echo -e "\r\033[K➕Summ up chunks:\n\n"
+echo -e "\r\033[K➕Summ up chunks\n\n"
 sum_chunk_sizes
 
 end=$(date +%s)
