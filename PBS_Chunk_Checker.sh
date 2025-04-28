@@ -1,6 +1,6 @@
 #!/bin/bash
 
-chunk_list_file="~/chunk.list"
+chunk_list_file=$(mktemp)
 
 declare -a file_list
 declare -a chunk_list
