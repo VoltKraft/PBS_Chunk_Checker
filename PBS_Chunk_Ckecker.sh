@@ -50,7 +50,7 @@ remove_duplicates() {
         fi
     done
     chunk_list=("${unique_array[@]}")
-    whait 10
+    wait 10
 }
 
 sum_chunk_sizes() {
