@@ -50,7 +50,6 @@ remove_duplicates() {
         fi
     done
     chunk_list=("${unique_array[@]}")
-    wait 10
 }
 
 sum_chunk_sizes() {
@@ -110,6 +109,8 @@ get_datastore_path() {
 ###################################################################################################
 
 
+start=$(date +%s)
+clear
 datastore_path=$(get_datastore_path "$1") || exit 1
 echo "📁 Path to datastore: $datastore_path"
 SEARCH_PATH="$datastore_path$2"
@@ -119,8 +120,6 @@ echo "📁 Chunk path: $CHUNK_PATH"
 
 check_folder_exists $SEARCH_PATH
 
-start=$(date +%s)
-
 find_files "$SEARCH_PATH" file_list
 
 echo -e "\r\033[K💾 Saving used all Chunks"
@@ -129,10 +128,10 @@ for i in "${!file_list[@]}"; do
 done
 
 chunk_counter=${#chunk_list[@]}
-echo -e "\r\033[K➖ Removing duplicates\n"
+echo -e "\r\033[K➖ Removing duplicates"
 remove_duplicates
 
-echo -e "\r\033[K➕Summ up chunks\n\n"
+echo -e "\r\033[K➕ Summ up chunks\n\n"
 sum_chunk_sizes
 
 end=$(date +%s)
