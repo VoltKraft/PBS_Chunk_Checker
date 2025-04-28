@@ -45,26 +45,29 @@ remove_duplicates() {
 
 sum_chunk_sizes() {
     local total_size=0
+    local i=0
     while IFS= read -r digest; do
-    subdir="${digest:0:4}"
-    path="$CHUNK_PATH/$subdir/$digest"
+        subdir="${digest:0:4}"
+        path="$CHUNK_PATH/$subdir/$digest"
         if [[ -f "$path" ]]; then
             size=$(du -sb "$path" | cut -f1)
-            echo -ne "\033[2A"
-            echo -ne "\r\033[K📦 Chunk $i/${#chunk_list[@]} : $digest → $size Bytes"
-            echo -ne "\n"
-            echo "🧮 Size so far: ($(numfmt --to=iec-i --suffix=B $total_size))"
             total_size=$((total_size + size))
+            echo -ne "\033[2A"
+            echo -ne "\r\033[K📦 Chunk $((i + 1))/$chunk_unique_counter: $digest → $size Bytes"
+            echo -ne "\n"
+            echo "🧮 Size so far: $(numfmt --to=iec-i --suffix=B <<< "$total_size")"
         else
             echo -ne "\033[2A"
-            echo -ne "\r\033[K❌ Index $i: File not found: $path"
+            echo -ne "\r\033[K❌ Chunk $((i + 1))/$chunk_unique_counter: File not found: $path"
             echo -ne "\n"
-            echo "🧮 Size so far: ($(numfmt --to=iec-i --suffix=B $total_size))"
+            echo "🧮 Size so far: $(numfmt --to=iec-i --suffix=B <<< "$total_size")"
         fi
+        ((i++))
     done < "$chunk_list_file"
     clear
-    echo "🧮 Total size: $total_size Bytes ($(numfmt --to=iec-i --suffix=B $total_size))"
+    echo "🧮 Total size: $total_size Bytes ($(numfmt --to=iec-i --suffix=B <<< "$total_size"))"
 }
+
 
 check_folder_exists() {
     local folder_path="$1"
