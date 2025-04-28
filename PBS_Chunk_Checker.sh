@@ -22,7 +22,6 @@ save_chunks() {
             in_chunk_section=1
             continue
         fi
-
         if [[ $in_chunk_section -eq 1 ]]; then
             if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
                 digest="${BASH_REMATCH[1]}"
@@ -46,10 +45,9 @@ remove_duplicates() {
 
 sum_chunk_sizes() {
     local total_size=0
-    for i in "${!chunk_list[@]}"; do
-        digest="${chunk_list[$i]}"
-        subdir="${digest:0:4}"
-        path="$CHUNK_PATH/$subdir/$digest"
+    while IFS= read -r digest; do
+    subdir="${digest:0:4}"
+    path="$CHUNK_PATH/$subdir/$digest"
         if [[ -f "$path" ]]; then
             size=$(du -sb "$path" | cut -f1)
             echo -ne "\033[2A"
@@ -63,7 +61,7 @@ sum_chunk_sizes() {
             echo -ne "\n"
             echo "🧮 Size so far: ($(numfmt --to=iec-i --suffix=B $total_size))"
         fi
-    done
+    done < "$chunk_list_file"
     #clear
     echo "🧮 Total size: $total_size Bytes ($(numfmt --to=iec-i --suffix=B $total_size))"
 }
