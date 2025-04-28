@@ -38,7 +38,7 @@ save_chunks() {
 remove_duplicates() {
     local tmp_file
     tmp_file=$(mktemp)
-    $chunk_counter=$(wc -l < "$chunk_list_file")
+    chunk_counter=$(wc -l < "$chunk_list_file")
     sort -u "$chunk_list_file" > "$tmp_file"
     chunk_unique_counter=$(wc -l < "$tmp_file")
     mv "$tmp_file" "$chunk_list_file"
