@@ -136,7 +136,7 @@ minutes=$(((duration % 3600) / 60))
 seconds=$((duration % 60))
 echo "⏱️ Evaluation duration: $hours hours, $minutes minutes, and $seconds seconds"
 
-percentage=$((chunk_reuse_counter * 1000 / chunk_counter))
+percentage=$((chunk_unique_counter * 1000 / chunk_counter))
 echo "$chunk_unique_counter/$chunk_counter $((percentage / 10)).$((percentage % 10))% Chunks used several times"
 echo "📁 Searched object: $datastore_path$SEARCH_PATH"
 
