@@ -28,7 +28,7 @@ save_chunks() {
             if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
                 digest="${BASH_REMATCH[1]}"
                 chunk_list+=("$digest") 
-                echo -ne "Chunk found: $digest | Index $i of ${#file_list[@]}\r"
+                echo -ne "Chunk found: $digest | Index $i of ${#file_list[@]} \r"
             else
                 in_chunk_section=0
             fi
@@ -74,7 +74,7 @@ sum_chunk_sizes() {
 
 check_folder_exists() {
     local folder_path="$1"
-    echo "Check if folder $folder_path exists"
+    echo "❓ Check if folder $folder_path exists"
     if [[ -d "$folder_path" ]]; then
         echo "✅ Folder exists → $folder_path"
         return 0
