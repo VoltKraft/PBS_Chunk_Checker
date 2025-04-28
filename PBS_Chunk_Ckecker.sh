@@ -27,7 +27,7 @@ save_chunks() {
         if [[ $in_chunk_section -eq 1 ]]; then
             if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
                 digest="${BASH_REMATCH[1]}"
-                chunk_list+=("$digest") 
+                chunk_list+=("$digest")
                 echo -ne "\r\033[KChunk found: $digest | Index $i of ${#file_list[@]}"
             else
                 in_chunk_section=0
@@ -56,10 +56,9 @@ remove_duplicates() {
 sum_chunk_sizes() {
     local total_size=0
     for i in "${!chunk_list[@]}"; do
-        digest="${chunk_list[$i]}" 
+        digest="${chunk_list[$i]}"
         subdir="${digest:0:4}"
         path="$CHUNK_PATH/$subdir/$digest"
-        echo -ne "\r\033[KSumm up chunks:\n"
         if [[ -f "$path" ]]; then
             size=$(du -sb "$path" | cut -f1)
             echo -ne "\033[2A"
@@ -67,7 +66,6 @@ sum_chunk_sizes() {
             echo -ne "\n"
             echo "🧮 Size so far: ($(numfmt --to=iec-i --suffix=B $total_size))"
             total_size=$((total_size + size))
-            
         else
             echo -ne "\033[2A"
             echo -ne "\r\033[K❌ Index $i: File not found: $path"
@@ -135,6 +133,7 @@ chunk_counter=${#chunk_list[@]}
 
 remove_duplicates
 
+echo -e "\r\033[K➕Summ up chunks:\n\n"
 sum_chunk_sizes
 
 end=$(date +%s)
