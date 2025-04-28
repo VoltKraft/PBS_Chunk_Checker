@@ -1,5 +1,6 @@
 #!/bin/bash
 
+chunk_list_file = "chunk_list_file"
 
 declare -a file_list
 declare -a chunk_list
@@ -118,7 +119,7 @@ start=$(date +%s)
 find_files "$SEARCH_PATH" file_list
 
 for i in "${!file_list[@]}"; do
-    save_chunks ${file_list[i]} chunks
+    save_chunks ${file_list[i]}
 done
 
 chunk_counter=${#chunk_list[@]}
