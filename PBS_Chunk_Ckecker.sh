@@ -59,13 +59,20 @@ sum_chunk_sizes() {
         digest="${chunk_list[$i]}" 
         subdir="${digest:0:4}"
         path="$CHUNK_PATH/$subdir/$digest"
-
+        echo -ne "\r\033[KSumm up chunks:\n"
         if [[ -f "$path" ]]; then
             size=$(du -sb "$path" | cut -f1)
+            echo -ne "\033[2A"
             echo -ne "\r\033[K📦 Chunk $i/${#chunk_list[@]} : $digest → $size Bytes"
+            echo -ne "\n"
+            echo "🧮 Size so far: ($(numfmt --to=iec-i --suffix=B $total_size))"
             total_size=$((total_size + size))
+            
         else
+            echo -ne "\033[2A"
             echo -ne "\r\033[K❌ Index $i: File not found: $path"
+            echo -ne "\n"
+            echo "🧮 Size so far: ($(numfmt --to=iec-i --suffix=B $total_size))"
         fi
     done
     clear
@@ -74,7 +81,7 @@ sum_chunk_sizes() {
 
 check_folder_exists() {
     local folder_path="$1"
-    echo "❓ Check if folder $folder_path exists"
+    echo "❓ Check if folder "$folder_path" exists"
     if [[ -d "$folder_path" ]]; then
         echo "✅ Folder exists → $folder_path"
         return 0
