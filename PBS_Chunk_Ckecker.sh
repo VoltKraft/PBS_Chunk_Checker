@@ -123,7 +123,7 @@ start=$(date +%s)
 
 find_files "$SEARCH_PATH" file_list
 
-echo -e "\r\033[K💾 Saving used all Chunks:\n"
+echo -e "\r\033[K💾 Saving used all Chunks:"
 for i in "${!file_list[@]}"; do
     save_chunks ${file_list[i]}
 done
