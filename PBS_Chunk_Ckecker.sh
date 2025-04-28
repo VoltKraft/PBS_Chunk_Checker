@@ -64,7 +64,7 @@ sum_chunk_sizes() {
             echo "🧮 Size so far: ($(numfmt --to=iec-i --suffix=B $total_size))"
         fi
     done
-    clear
+    #clear
     echo "🧮 Total size: $total_size Bytes ($(numfmt --to=iec-i --suffix=B $total_size))"
 }
 
