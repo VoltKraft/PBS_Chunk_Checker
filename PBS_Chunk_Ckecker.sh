@@ -68,6 +68,7 @@ sum_chunk_sizes() {
             echo -ne "❌ Index $i: File not found: $path\r"
         fi
     done
+    clear
     echo "🧮 Total size: $total_size Bytes ($(numfmt --to=iec-i --suffix=B $total_size))"
 }
 
@@ -75,6 +76,7 @@ check_folder_exists() {
     local folder_path="$1"
     echo "Check if folder $folder_path exists"
     if [[ -d "$folder_path" ]]; then
+        echo "✅ Folder exists → $folder_path"
         return 0
     else
         echo "❌ Error: Folder does not exist → $folder_path" >&2
