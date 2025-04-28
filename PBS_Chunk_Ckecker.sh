@@ -12,7 +12,7 @@ find_files() {
     local search_path="$1"
     while IFS= read -r file; do
         file_list+=("$file")
-        echo Index found: $file
+        echo -ne "Index found: $file\r"
     done < <(find "$search_path" -type f \( -name "*.fidx" -o -name "*.didx" \))
 }
 
@@ -28,7 +28,7 @@ save_chunks() {
             if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
                 digest="${BASH_REMATCH[1]}"
                 chunk_list+=("$digest") 
-                echo "Chunk found: $digest | Index $i of ${#file_list[@]}"
+                echo -ne "Chunk found: $digest | Index $i of ${#file_list[@]}\r"
             else
                 in_chunk_section=0
             fi
@@ -42,11 +42,11 @@ remove_duplicates() {
     declare -A seen=()
     for item in "${chunk_list[@]}"; do
         if [[ -z "${seen[$item]}" ]]; then
-            echo "➕ New: $item"
+            echo -ne "➕ New: $item\r"
             unique_array+=("$item")
             seen["$item"]=1
         else
-            echo "Already available: $item"
+            echo -ne "Already available: $item\r"
             ((chunk_reuse_counter++))
         fi
     done
@@ -62,10 +62,10 @@ sum_chunk_sizes() {
 
         if [[ -f "$path" ]]; then
             size=$(du -sb "$path" | cut -f1)
-            echo "📦 Chunk $i/${#chunk_list[@]} : $digest → $size Bytes"
+            echo -ne "📦 Chunk $i/${#chunk_list[@]} : $digest → $size Bytes\r"
             total_size=$((total_size + size))
         else
-            echo "❌ Index $i: File not found: $path"
+            echo -ne "❌ Index $i: File not found: $path\r"
         fi
     done
     echo "🧮 Total size: $total_size Bytes ($(numfmt --to=iec-i --suffix=B $total_size))"
