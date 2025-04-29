@@ -119,7 +119,7 @@ check_folder_exists $SEARCH_PATH
 
 find_files "$SEARCH_PATH" file_list
 
-echo -e "\r\033[K💾 Saving used all chunks"
+echo -e "\r\033[K💾 Saving all used chunks"
 for i in "${!file_list[@]}"; do
     save_chunks ${file_list[i]}
 done
