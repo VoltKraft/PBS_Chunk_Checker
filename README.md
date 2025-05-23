@@ -1,14 +1,24 @@
 # PBS_Chunk_Checker
 ## What is this about
 ### The problem
-I was faced with the problem that I wanted to know how much disk space the backup of a single VM or a single namespace consumes.
-Unfortunately, the GUI of the Proxmox Backup Server only shows the total (thick) size of the VM's virtual hard disks and not the actual memory used on the datastore.
-This is because the chunks that are used for the backup of VM1 can also be used for VM2 or even several times for VM1 if they are the same.
-This is good for saving storage space, but if I have several tenants on my backup server, for example, I cannot differentiate between how much of the storage used is attributable to tenant A and how much to tenant B. However, this can be important if I want to charge for the storage space used.
+The Proxmox Backup Server (PBS) web interface only displays the total (thick) size of a VM's virtual hard disks. However, it does not show the actual storage used on the datastore.
+
+This leads to a challenge:
+Backup chunks may be shared across multiple restore points, VMs, or even within the same VM. While this deduplication is great for saving space, it makes it difficult to determine how much disk space is truly consumed by a specific VM, container, or namespace — especially in multi-tenant environments.
+
+For example, if Tenant A and Tenant B both use overlapping chunks, the total space shown includes shared data. This makes it hard to allocate costs fairly or understand usage distribution per tenant.
 ### The solution
-For example, to find out how much disk space the namespace “Tenant A” alone would consume, I have to look at all index files of all restore points from each host, vm and ct backup, and read out all chunks used.
-That's exactly what the script does.
-It first lists all chunks, removes all but one of the chunks that are used multiple times and calculates how much memory these chunks require.
+To accurately determine the disk usage of a specific namespace, VM, or container, this script:
+
+1. Scans all index files (*.fidx, *.didx) in the specified datastore path.
+
+2. Extracts all unique chunk IDs referenced.
+
+2. Deduplicates the chunk list (since chunks may be used multiple times).
+
+4. Sums the total storage size of the actual chunk files referenced.
+
+This gives you the real disk usage (in bytes) of the selected backup object — accounting only for the unique chunks it uses.
 ## Usage
 ### Syntax
 ```bash
@@ -24,5 +34,11 @@ Check the size of the VM with ID 100 within the namespace “MyNamespace”:
 ./PBS_Chunk_Checker "MyDatastore" "/ns/MyNamespace/vm/100"
 ```
 ### Recommendation for use
-Depending on the size of the object to be searched, the evaluation can take several hours.
-I therefore recommend carrying out the evaluation in a [screen](https://www.gnu.org/software/screen/manual/screen.html "Screen User's Manual") and also redirecting the output to a file.
+The runtime of the script depends on the number and size of restore points. For large namespaces, the analysis may take several hours.
+
+For long-running evaluations, it is recommended to run the script inside a [screen](https://www.gnu.org/software/screen/manual/screen.html "Screen User's Manual") session or a similar terminal multiplexer.
+
+Redirect the output to a log file for later review:
+```bash
+./PBS_Chunk_Checker "MyDatastore" "/ns/MyNamespace" | tee mynamespace_report.log
+```
