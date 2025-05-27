@@ -18,36 +18,38 @@ find_files() {
 save_chunks() {
     local total_files=${#file_list[@]}
     local current_file=0
+    local tmpfile=$(mktemp)
 
-    {
-        for ((i = 0; i < total_files; i++)); do
-            local in_chunk_section=0
-            while IFS= read -r line; do
-                if [[ "$line" =~ ^chunks: ]]; then
-                    in_chunk_section=1
-                    continue
+    for ((i = 0; i < total_files; i++)); do
+        local in_chunk_section=0
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^chunks: ]]; then
+                in_chunk_section=1
+                continue
+            fi
+            if [[ $in_chunk_section -eq 1 ]]; then
+                if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
+                    digest="${BASH_REMATCH[1]}"
+                    echo "$digest" >> "$chunk_list_file"
+                else
+                    in_chunk_section=0
                 fi
-                if [[ $in_chunk_section -eq 1 ]]; then
-                    if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
-                        digest="${BASH_REMATCH[1]}"
-                        echo "$digest" >> "$chunk_list_file"
-                    else
-                        in_chunk_section=0
-                    fi
-                fi
-            done < <(proxmox-backup-debug inspect file --output-format text "${file_list[i]}")
+            fi
+        done < <(proxmox-backup-debug inspect file --output-format text "${file_list[i]}")
 
-            current_file=$((i + 1))
-            percent=$((current_file * 100 / total_files))
-            echo "$percent"
-            echo "XXX"
-            echo "💾 Scanning file $current_file of $total_files"
-            echo "XXX"
-        done
-    } | dialog --title "💾 Extracting Chunks" --gauge "Initializing..." 10 70 0
+        current_file=$((i + 1))
+        percent=$((current_file * 100 / total_files))
 
+        echo $percent > "$tmpfile"
+        echo "💾 Scanning file $current_file of $total_files" >> "$tmpfile"
+
+        whiptail --gauge "Scanning..." 10 70 < "$tmpfile"
+    done
+
+    rm -f "$tmpfile"
     clear
 }
+
 
 remove_duplicates() {
     local tmp_file
