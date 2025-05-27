@@ -16,22 +16,37 @@ find_files() {
 }
 
 save_chunks() {
-    local in_chunk_section=0
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^chunks: ]]; then
-            in_chunk_section=1
-            continue
-        fi
-        if [[ $in_chunk_section -eq 1 ]]; then
-            if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
-                digest="${BASH_REMATCH[1]}"
-                echo "$digest" >> $chunk_list_file
-                echo -ne "\r\033[KChunk found: $digest | Index $i of ${#file_list[@]}"
-            else
-                in_chunk_section=0
-            fi
-        fi
-    done < <(proxmox-backup-debug inspect file --output-format text "${file_list[i]}")
+    local total_files=${#file_list[@]}
+    local current_file=0
+
+    {
+        for ((i = 0; i < total_files; i++)); do
+            local in_chunk_section=0
+            while IFS= read -r line; do
+                if [[ "$line" =~ ^chunks: ]]; then
+                    in_chunk_section=1
+                    continue
+                fi
+                if [[ $in_chunk_section -eq 1 ]]; then
+                    if [[ "$line" =~ \"([a-f0-9]{64})\" ]]; then
+                        digest="${BASH_REMATCH[1]}"
+                        echo "$digest" >> "$chunk_list_file"
+                    else
+                        in_chunk_section=0
+                    fi
+                fi
+            done < <(proxmox-backup-debug inspect file --output-format text "${file_list[i]}")
+
+            current_file=$((i + 1))
+            percent=$((current_file * 100 / total_files))
+            echo "$percent"
+            echo "XXX"
+            echo "💾 Scanning file $current_file of $total_files"
+            echo "XXX"
+        done
+    } | dialog --title "💾 Extracting Chunks" --gauge "Initializing..." 10 70 0
+
+    clear
 }
 
 remove_duplicates() {
@@ -46,27 +61,34 @@ remove_duplicates() {
 sum_chunk_sizes() {
     local total_size=0
     local i=0
-    while IFS= read -r digest; do
-        subdir="${digest:0:4}"
-        path="$CHUNK_PATH/$subdir/$digest"
-        if [[ -f "$path" ]]; then
-            size=$(du -sb "$path" | cut -f1)
-            total_size=$((total_size + size))
-            echo -ne "\033[2A"
-            echo -ne "\r\033[K📦 Chunk $((i + 1))/$chunk_unique_counter: $digest → $size Bytes"
-            echo -ne "\n"
+
+    {
+        while IFS= read -r digest; do
+            subdir="${digest:0:4}"
+            path="$CHUNK_PATH/$subdir/$digest"
+
+            if [[ -f "$path" ]]; then
+                size=$(du -sb "$path" | cut -f1)
+                total_size=$((total_size + size))
+                msg="📦 Chunk $((i + 1))/$chunk_unique_counter: $digest → $size Bytes"
+            else
+                msg="❌ Chunk $((i + 1))/$chunk_unique_counter: File not found: $path"
+            fi
+
+            percent=$(( (i + 1) * 100 / chunk_unique_counter ))
+            echo "$percent"
+            echo "XXX"
+            echo "$msg"
             echo "🧮 Size so far: $(numfmt --to=iec-i --suffix=B <<< "$total_size")"
-        else
-            echo -ne "\033[2A"
-            echo -ne "\r\033[K❌ Chunk $((i + 1))/$chunk_unique_counter: File not found: $path"
-            echo -ne "\n"
-            echo "🧮 Size so far: $(numfmt --to=iec-i --suffix=B <<< "$total_size")"
-        fi
-        ((i++))
-    done < "$chunk_list_file"
+            echo "XXX"
+            ((i++))
+        done < "$chunk_list_file"
+    } | dialog --title "🔍 Summing up chunk sizes..." --gauge "Initializing..." 10 70 0
+
     clear
     echo "🧮 Total size: $total_size Bytes ($(numfmt --to=iec-i --suffix=B <<< "$total_size"))"
 }
+
 
 
 check_folder_exists() {
