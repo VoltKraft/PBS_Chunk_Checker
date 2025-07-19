@@ -52,15 +52,9 @@ sum_chunk_sizes() {
         if [[ -f "$path" ]]; then
             size=$(du -sb "$path" | cut -f1)
             total_size=$((total_size + size))
-            echo -ne "\033[2A"
-            echo -ne "\r\033[K📦 Chunk $((i + 1))/$chunk_unique_counter: $digest → $size Bytes"
-            echo -ne "\n"
-            echo "🧮 Size so far: $(numfmt --to=iec-i --suffix=B <<< "$total_size")"
+            echo -ne "\r\033[K📦 Chunk $((i + 1))/$chunk_unique_counter | 🧮 Size so far: $(numfmt --to=iec-i --suffix=B <<< "$total_size")"
         else
-            echo -ne "\033[2A"
-            echo -ne "\r\033[K❌ Chunk $((i + 1))/$chunk_unique_counter: File not found: $path"
-            echo -ne "\n"
-            echo "🧮 Size so far: $(numfmt --to=iec-i --suffix=B <<< "$total_size")"
+            echo -ne "\r\033[K❌ Chunk $((i + 1))/$chunk_unique_counter: File not found: $path | 🧮 Size so far: $(numfmt --to=iec-i --suffix=B <<< "$total_size")"
         fi
         ((i++))
     done < "$chunk_list_file"
@@ -127,7 +121,7 @@ done
 echo -e "\r\033[K➖ Removing duplicates"
 remove_duplicates
 
-echo -e "\r\033[K➕ Summ up chunks\n\n"
+echo -e "\r\033[K➕ Summ up chunks"
 sum_chunk_sizes
 
 end=$(date +%s)
