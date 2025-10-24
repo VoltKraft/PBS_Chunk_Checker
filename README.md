@@ -1,44 +1,99 @@
-# PBS_Chunk_Checker
-## What is this about
-### The problem
-The Proxmox Backup Server (PBS) web interface only displays the total (thick) size of a VM's virtual hard disks. However, it does not show the actual storage used on the datastore.
+# PBS_Chunk_Checker (Python Edition)
 
-This leads to a challenge:
-Backup chunks may be shared across multiple restore points, VMs, or even within the same VM. While this deduplication is great for saving space, it makes it difficult to determine how much disk space is truly consumed by a specific VM, container, or namespace — especially in multi-tenant environments.
+## 🧩 Overview
 
-For example, if Tenant A and Tenant B both use overlapping chunks, the total space shown includes shared data. This makes it hard to allocate costs fairly or understand usage distribution per tenant.
-### The solution
-To accurately determine the disk usage of a specific namespace, VM, or container, this script:
+The **PBS_Chunk_Checker** is a diagnostic and analysis tool for **Proxmox Backup Server (PBS)** datastores.  
+It calculates the **real disk space usage** of a specific **namespace**, **VM**, or **container** by summing only the **unique chunk files** that are actually referenced.
 
-1. Scans all index files (*.fidx, *.didx) in the specified datastore path.
+This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-2. Extracts all unique chunk IDs referenced.
+---
 
-2. Deduplicates the chunk list (since chunks may be used multiple times).
+## 💡 Why This Script Exists
 
-4. Sums the total storage size of the actual chunk files referenced.
+### The Problem
+The PBS web UI shows only the total (provisioned) disk size of virtual disks.  
+However, it doesn’t display the *actual storage usage* due to deduplication across backups.
 
-This gives you the real disk usage (in bytes) of the selected backup object — accounting only for the unique chunks it uses.
-## Usage
+Deduplicated chunks can be shared by:
+- Multiple restore points,
+- Multiple VMs or containers,
+- Different namespaces.
+
+Hence, the “used space” per VM or namespace cannot be determined directly.
+
+### The Solution
+This script performs a deep inspection of PBS index files (`*.fidx`, `*.didx`) to:
+1. Identify all referenced chunk digests.
+2. Deduplicate them.
+3. Calculate the total byte size of these unique chunk files.
+
+The result is the **true storage usage** of the selected backup object.
+
+---
+
+## ⚙️ Usage
+
 ### Syntax
 ```bash
-./PBS_Chunk_Checker "<DATASTORE_NAME>" "<SERCHPATH>"
+./PBS_Chunk_Checker.py <DATASTORE_NAME> <SEARCH_SUBPATH> [--workers N]
 ```
-Example:
-Check the size of the namespace “MyNamespace”:
-```bash
-./PBS_Chunk_Checker "MyDatastore" "/ns/MyNamespace"
-```
-Check the size of the VM with ID 100 within the namespace “MyNamespace”:
-```bash
-./PBS_Chunk_Checker "MyDatastore" "/ns/MyNamespace/vm/100"
-```
-### Recommendation for use
-The runtime of the script depends on the number and size of restore points. For large namespaces, the analysis may take several hours.
 
-For long-running evaluations, it is recommended to run the script inside a [screen](https://www.gnu.org/software/screen/manual/screen.html "Screen User's Manual") session or a similar terminal multiplexer.
-
-Redirect the output to a log file for later review:
+### Examples
+Check the total unique chunk size of a namespace:
 ```bash
-./PBS_Chunk_Checker "MyDatastore" "/ns/MyNamespace" | tee mynamespace_report.log
+./PBS_Chunk_Checker.py MyDatastore /ns/MyNamespace
 ```
+
+Check the total unique chunk size of a VM within a namespace:
+```bash
+./PBS_Chunk_Checker.py MyDatastore /ns/MyNamespace/vm/100
+```
+
+### Optional Parameters
+| Option | Description | Default |
+|---------|--------------|----------|
+| `--workers` | Number of parallel workers used for parsing and stat operations | `min(32, 2 × CPU cores)` |
+
+---
+
+## 📊 Output Example
+
+```
+📁 Path to datastore: /mnt/datastore/MyDatastore
+📁 Search path: /mnt/datastore/MyDatastore/ns/MyNamespace
+📁 Chunk path: /mnt/datastore/MyDatastore/.chunks
+
+💾 Saving all used chunks
+📄 Index 75/75
+➕ Summing up chunks
+📦 Chunk 12450/12450 | 🧮 Size so far: 1.23TiB
+
+🧮 Total size: 1356782934123 Bytes (1.23TiB)
+⏱️ Evaluation duration: 0 hours, 24 minutes, and 32 seconds
+🧩 Unique chunks: 12450 (91.45% unique, 8.55% duplicates)
+📁 Searched object: /ns/MyNamespace
+```
+
+---
+
+## ⚠️ Notes
+
+- The script requires **no additional Python packages** — it uses only built-in modules.
+- It must be executed **directly on a PBS host** because it depends on:
+  - `proxmox-backup-manager`
+  - `proxmox-backup-debug`
+
+---
+
+## 🚀 Performance Improvements
+
+This new Python version is designed for **significantly faster processing**:
+- Parallelized parsing and chunk size summation with `ThreadPoolExecutor`
+- Reduced overhead by avoiding file I/O redirection and external logging
+- Efficient deduplication using Python’s `Counter` and `set` types
+
+---
+
+**Author:** Jan Paulzen (VoltKraft) 
+**Version:** 2.0 (Python rewrite, performance-optimized)
