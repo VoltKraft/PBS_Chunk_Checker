@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple
-from collections import Counter  # ✅ Neu hinzugefügt
+from collections import Counter 
 
 # -------------
 # CLI / Helpers
@@ -165,8 +165,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("search_subpath", help='Subpath (e.g., "/ns/MyNamespace" or "/ns/MyNamespace/vm/100")')
     parser.add_argument("--workers", type=int, default=min(32, (os.cpu_count() or 4) * 2),
                         help="Number of parallel workers for parsing/stat (default: 2×CPU, capped at 32).")
-    parser.add_argument("--quiet", action="store_true", help="Reduce progress output.")
-    parser.add_argument("--print-missing", action="store_true", help="List missing chunk files during summing.")
     args = parser.parse_args(argv)
 
     start_ts = time.time()
@@ -188,11 +186,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if total_files == 0:
         print("ℹ️ No index files (*.fidx/*.didx) found.")
         return 0
+         
+    print("\n💾 Saving all used chunks")
 
-    if not args.quiet:
-        print("\n💾 Saving all used chunks")
-
-    # ✅ Neu: Counter statt Set
     digest_counter = Counter()
     processed = 0
     with futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -204,13 +200,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except Exception as e:
                 sys.stderr.write(f"\n⚠️ Failed to parse {futs[fut]}: {e}\n")
             processed += 1
-            if not args.quiet:
-                _progress_line("📄 Index", processed, total_files)
+            _progress_line("📄 Index", processed, total_files)
 
-    if not args.quiet:
-        print()
+    print()
 
-    # ✅ Neu: Gesamtzahl und Prozent berechnen
     chunk_counter_total = sum(digest_counter.values())
     total_unique = len(digest_counter)
     duplicate_ratio = (1 - total_unique / chunk_counter_total) * 100 if chunk_counter_total else 0
@@ -219,8 +212,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("ℹ️ No chunks referenced. Nothing to sum.")
         return 0
 
-    if not args.quiet:
-        print("➕ Summing up chunks")
+    print("➕ Summing up chunks")
 
     missing_count = 0
     summed = 0
@@ -240,17 +232,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 total_bytes += size
                 if missing:
                     missing_count += 1
-                    if args.print-missing:
-                        print(f"\r\033[K❌ Missing: {chunk_path_for_digest(chunks_root, futs2[fut])}", flush=True)
+                    print(f"\r\033[K❌ Missing: {chunk_path_for_digest(chunks_root, futs2[fut])}", flush=True)
             except Exception as e:
                 sys.stderr.write(f"\n⚠️ Failed to stat chunk {futs2[fut]}: {e}\n")
             summed += 1
-            if not args.quiet:
-                _progress_line("📦 Chunk", summed, total_unique, f"| 🧮 Size so far: {human_readable_size(total_bytes)}")
+            _progress_line("📦 Chunk", summed, total_unique, f"| 🧮 Size so far: {human_readable_size(total_bytes)}")
 
-    if not args.quiet:
-        print()
-        print("\033[2K", end="")
+    print()
+    print("\033[2K", end="")
 
     print(f"🧮 Total size: {total_bytes} Bytes ({human_readable_size(total_bytes)})")
 
@@ -261,7 +250,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     seconds = duration % 60
     print(f"⏱️ Evaluation duration: {hours} hours, {minutes} minutes, and {seconds} seconds")
 
-    # ✅ Neu: Prozentangabe bei Chunks
     print(f"🧩 Unique chunks: {total_unique} ({100 - duplicate_ratio:.2f}% unique, {duplicate_ratio:.2f}% duplicates)")
 
     if missing_count:
