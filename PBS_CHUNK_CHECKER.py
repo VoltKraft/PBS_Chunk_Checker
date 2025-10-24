@@ -1,8 +1,3 @@
-# We'll create the Python script as requested and save it to /mnt/data so the user can download it.
-# The script ports the Bash logic to Python, keeping functionality while improving performance via parallelism.
-from textwrap import dedent
-
-code = dedent(r'''
 #!/usr/bin/env python3
 """
 PBS_Chunk_Checker.py
@@ -327,9 +322,3 @@ if __name__ == "__main__":
     # Graceful Ctrl+C
     signal.signal(signal.SIGINT, lambda s, f: sys.exit(130))
     sys.exit(main())
-''')
-
-with open('/mnt/data/PBS_Chunk_Checker.py', 'w', encoding='utf-8') as f:
-    f.write(code)
-
-print("Saved /mnt/data/PBS_Chunk_Checker.py")
