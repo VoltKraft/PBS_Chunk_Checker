@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""
-PBS_Chunk_Checker.py
---------------------
-Port of the Bash-based PBS_Chunk_Checker to Python (standard library only).
-- Same functional flow:
-  1) Resolve datastore path
-  2) Find *.fidx/*.didx below a given search path
-  3) Extract all chunk digests referenced by those index files
-  4) De-duplicate and sum the on-disk sizes of the chunks in .chunks/<xxxx>/<digest>
-- Optimized for performance:
-  * Parallel parsing of index files (ThreadPoolExecutor)
-  * De-duplication in-memory (set)
-  * Direct size reads via os.stat instead of spawning 'du'
-- No external dependencies. Runs on PBS with stock Python.
-"""
 
 import argparse
 import concurrent.futures as futures
