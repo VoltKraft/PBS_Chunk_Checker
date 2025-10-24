@@ -12,6 +12,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple
+from collections import Counter  # ✅ Neu hinzugefügt
 
 # -------------
 # CLI / Helpers
@@ -19,7 +20,6 @@ from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple
 
 def human_readable_size(num_bytes: int) -> str:
     """Format bytes using IEC units with 'B' suffix (e.g., '1.0KiB')."""
-    # Match PBS/numfmt --to=iec-i --suffix=B style
     units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"]
     size = float(num_bytes)
     for unit in units:
@@ -46,7 +46,6 @@ def run_cmd(cmd: Sequence[str], check: bool = True, capture: bool = True, text: 
 
 def get_datastore_path(datastore_name: str) -> str:
     """Resolve the filesystem path of a PBS datastore via proxmox-backup-manager."""
-    # Prefer JSON output for robust parsing
     try:
         cp = run_cmd(["proxmox-backup-manager", "datastore", "show", datastore_name, "--output-format", "json"])
         data = json.loads(cp.stdout) if cp.stdout else {}
@@ -56,7 +55,6 @@ def get_datastore_path(datastore_name: str) -> str:
     except subprocess.CalledProcessError:
         pass
 
-    # Fallback: try text parsing (as in Bash version), if JSON fails for some reason
     cp = run_cmd(["proxmox-backup-manager", "datastore", "show", datastore_name])
     m = re.search(r'"path"\s*:\s*"([^"]+)"', cp.stdout)
     if m:
@@ -84,15 +82,9 @@ def find_index_files(search_path: str) -> list[str]:
 # Chunk extraction logic
 # ----------------------
 
-# Regex for hashing: 64 lowercase hex characters
 _HEX64 = re.compile(r'"?([a-f0-9]{64})"?')
 
 def _parse_chunks_from_text(output: str) -> Set[str]:
-    """
-    Parse chunk digests from the text output of:
-      proxmox-backup-debug inspect file --output-format text <index_file>
-    We consider the section after a line starting with 'chunks:'.
-    """
     chunks: Set[str] = set()
     in_chunks = False
     for line in output.splitlines():
@@ -100,26 +92,18 @@ def _parse_chunks_from_text(output: str) -> Set[str]:
             if line.strip().startswith("chunks:"):
                 in_chunks = True
             continue
-        # Once in chunk section, digest lines typically contain quoted 64-hex digests
         m = _HEX64.search(line)
         if m:
             chunks.add(m.group(1))
-        else:
-            # End of section when line no longer matches the pattern
-            # (keeps behavior similar to Bash version)
-            # But some outputs may include trailing metadata lines; be tolerant.
-            pass
     return chunks
 
 
 def _parse_chunks_from_json(output: str) -> Optional[Set[str]]:
-    """Try to parse JSON output and extract digests (if JSON mode is available)."""
     try:
         data = json.loads(output)
     except json.JSONDecodeError:
         return None
 
-    # Expected structure: object contains "chunks": [{"digest": "<hex64>", ...}, ...]
     chunks = set()
     if isinstance(data, dict) and "chunks" in data:
         for item in data.get("chunks", []):
@@ -131,8 +115,6 @@ def _parse_chunks_from_json(output: str) -> Optional[Set[str]]:
 
 
 def extract_chunks_from_file(index_file: str) -> Set[str]:
-    """Call 'proxmox-backup-debug inspect file' and extract chunk digests from a single index file."""
-    # Try JSON first (faster to parse, more robust)
     try:
         cp = run_cmd(["proxmox-backup-debug", "inspect", "file", "--output-format", "json", index_file])
         if cp.stdout:
@@ -142,7 +124,6 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
     except subprocess.CalledProcessError:
         pass
 
-    # Fallback to text parsing
     cp = run_cmd(["proxmox-backup-debug", "inspect", "file", "--output-format", "text", index_file])
     return _parse_chunks_from_text(cp.stdout)
 
@@ -152,12 +133,10 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
 # -----------------------
 
 def chunk_path_for_digest(chunks_root: str, digest: str) -> Path:
-    """Return full path to chunk file: <chunks_root>/<first4>/<digest>"""
     return Path(chunks_root) / digest[:4] / digest
 
 
 def stat_size_if_exists(path: Path) -> int:
-    """Return file size (bytes) if exists, else 0."""
     try:
         st = path.stat()
         return int(st.st_size)
@@ -192,7 +171,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     start_ts = time.time()
 
-    # Resolve datastore path
     datastore_path = get_datastore_path(args.datastore)
     search_path = str(Path(datastore_path) / args.search_subpath.lstrip("/"))
     chunks_root = str(Path(datastore_path) / ".chunks")
@@ -201,12 +179,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"📁 Search path: {search_path}")
     print(f"📁 Chunk path: {chunks_root}")
 
-    # Validate search path exists
     if not Path(search_path).is_dir():
         sys.stderr.write(f"❌ Error: Folder does not exist → {search_path}\n")
         return 1
 
-    # 1) Find index files
     index_files = find_index_files(search_path)
     total_files = len(index_files)
     if total_files == 0:
@@ -216,15 +192,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not args.quiet:
         print("\n💾 Saving all used chunks")
 
-    # 2) Extract chunks in parallel
-    all_digests: Set[str] = set()
+    # ✅ Neu: Counter statt Set
+    digest_counter = Counter()
     processed = 0
     with futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         futs = {pool.submit(extract_chunks_from_file, f): f for f in index_files}
         for fut in futures.as_completed(futs):
             try:
                 digests = fut.result()
-                all_digests.update(digests)
+                digest_counter.update(digests)
             except Exception as e:
                 sys.stderr.write(f"\n⚠️ Failed to parse {futs[fut]}: {e}\n")
             processed += 1
@@ -232,21 +208,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 _progress_line("📄 Index", processed, total_files)
 
     if not args.quiet:
-        print()  # newline after progress
+        print()
 
-    chunk_counter_total = sum(1 for _ in all_digests)  # unique by design; but mirror Bash counters
-    # In Bash: chunk_counter = total occurrences before dedup; here we don't count occurrences efficiently
-    # For parity, we can re-collect with occurrences, but that costs memory/time.
-    # We'll keep a best-effort: parse counts while extracting.
-    # To preserve performance, we accept that "duplicate %" may be omitted or approximated.
-
-    total_unique = len(all_digests)
+    # ✅ Neu: Gesamtzahl und Prozent berechnen
+    chunk_counter_total = sum(digest_counter.values())
+    total_unique = len(digest_counter)
+    duplicate_ratio = (1 - total_unique / chunk_counter_total) * 100 if chunk_counter_total else 0
 
     if total_unique == 0:
         print("ℹ️ No chunks referenced. Nothing to sum.")
         return 0
 
-    # 3) Sum chunk sizes in parallel
     if not args.quiet:
         print("➕ Summing up chunks")
 
@@ -261,7 +233,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return size, missing
 
     with futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futs2 = {pool.submit(_stat_one, d): d for d in all_digests}
+        futs2 = {pool.submit(_stat_one, d): d for d in digest_counter.keys()}
         for fut in futures.as_completed(futs2):
             try:
                 size, missing = fut.result()
@@ -277,11 +249,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 _progress_line("📦 Chunk", summed, total_unique, f"| 🧮 Size so far: {human_readable_size(total_bytes)}")
 
     if not args.quiet:
-        print()  # newline
-        # Clear line (similar to Bash 'clear' before final total)
+        print()
         print("\033[2K", end="")
 
-    # 4) Final output
     print(f"🧮 Total size: {total_bytes} Bytes ({human_readable_size(total_bytes)})")
 
     end_ts = time.time()
@@ -291,11 +261,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     seconds = duration % 60
     print(f"⏱️ Evaluation duration: {hours} hours, {minutes} minutes, and {seconds} seconds")
 
-    # Duplicate info (approximation note)
-    # The Bash script prints unique/total and a percentage of "Chunks used several times".
-    # Since we optimized by not counting per-occurrence references, we print the unique count only.
-    # If exact duplicate stats are desired, we can optionally enable an 'occurrence counting' mode.
-    print(f"🧩 Unique chunks: {total_unique}")
+    # ✅ Neu: Prozentangabe bei Chunks
+    print(f"🧩 Unique chunks: {total_unique} ({100 - duplicate_ratio:.2f}% unique, {duplicate_ratio:.2f}% duplicates)")
+
     if missing_count:
         print(f"⚠️ Missing chunk files: {missing_count}")
 
@@ -304,6 +272,5 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    # Graceful Ctrl+C
     signal.signal(signal.SIGINT, lambda s, f: sys.exit(130))
     sys.exit(main())
