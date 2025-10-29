@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple
 from collections import Counter 
 
-# -------------
-# CLI / Helpers
-# -------------
+# =============================================================================
+# CLI helpers and shared utilities
+# =============================================================================
 
 def human_readable_size(num_bytes: int) -> str:
     """Format bytes using IEC units with 'B' suffix (e.g., '1.0KiB')."""
@@ -78,9 +78,9 @@ def find_index_files(search_path: str) -> list[str]:
     return matches
 
 
-# ----------------------
-# Chunk extraction logic
-# ----------------------
+# =============================================================================
+# Chunk extraction from index files
+# =============================================================================
 
 _HEX64 = re.compile(r'"?([a-f0-9]{64})"?')
 
@@ -128,9 +128,9 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
     return _parse_chunks_from_text(cp.stdout)
 
 
-# -----------------------
-# Chunk size sum logic
-# -----------------------
+# =============================================================================
+# Chunk size lookup and aggregation
+# =============================================================================
 
 def chunk_path_for_digest(chunks_root: str, digest: str) -> Path:
     return Path(chunks_root) / digest[:4] / digest
@@ -144,20 +144,21 @@ def stat_size_if_exists(path: Path) -> int:
         return 0
 
 
-# ----------------
-# Progress printing
-# ----------------
+# =============================================================================
+# Progress rendering utilities
+# =============================================================================
 
 def _progress_line(prefix: str, i: int, total: int, extra: str = "") -> None:
     msg = f"\r\033[K{prefix} {i}/{total} {extra}"
     print(msg, end="", flush=True)
 
 
-# -------
-#  Main
-# -------
+# =============================================================================
+# Main routine: CLI parsing, data evaluation and reporting
+# =============================================================================
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    # ----- Parse CLI arguments and determine worker count -----
     parser = argparse.ArgumentParser(
         description="Sum actual used chunk sizes for a given PBS datastore object (namespace/VM/CT)."
     )
@@ -169,6 +170,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     start_ts = time.time()
 
+    # ----- Resolve datastore and chunk directory paths -----
     datastore_path = get_datastore_path(args.datastore)
     search_path = str(Path(datastore_path) / args.search_subpath.lstrip("/"))
     chunks_root = str(Path(datastore_path) / ".chunks")
@@ -181,6 +183,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sys.stderr.write(f"❌ Error: Folder does not exist → {search_path}\n")
         return 1
 
+    # ----- Locate index files (didx/fidx) -----
     index_files = find_index_files(search_path)
     total_files = len(index_files)
     if total_files == 0:
@@ -189,6 +192,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
          
     print("\n💾 Saving all used chunks")
 
+    # ----- Extract referenced chunks from index files -----
     digest_counter = Counter()
     processed = 0
     with futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -212,6 +216,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("ℹ️ No chunks referenced. Nothing to sum.")
         return 0
 
+    # ----- Sum chunk files under .chunks -----
     print("➕ Summing up chunks")
 
     missing_count = 0
@@ -258,6 +263,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"📁 Searched object: {search_path}")
     return 0
 
+
+# =============================================================================
+# Program entrypoint
+# =============================================================================
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, lambda s, f: sys.exit(130))
