@@ -154,25 +154,39 @@ def _progress_line(prefix: str, i: int, total: int, extra: str = "") -> None:
 
 
 # =============================================================================
-# Main routine: CLI parsing, data evaluation and reporting
+# Main routine: CLI parsing, chunk processing and reporting
 # =============================================================================
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    # ----- Parse CLI arguments and determine worker count -----
+    # ----- Parse CLI arguments and compute runtime defaults -----
     parser = argparse.ArgumentParser(
         description="Sum actual used chunk sizes for a given PBS datastore object (namespace/VM/CT)."
     )
-    parser.add_argument("datastore", help='Name of the PBS datastore (e.g., "MyDatastore")')
-    parser.add_argument("search_subpath", help='Subpath (e.g., "/ns/MyNamespace" or "/ns/MyNamespace/vm/100")')
-    parser.add_argument("--workers", type=int, default=min(32, (os.cpu_count() or 4) * 2),
-                        help="Number of parallel workers for parsing/stat (default: 2×CPU, capped at 32).")
+    parser.add_argument(
+        "--datastore",
+        required=True,
+        help="Name of the PBS datastore where the object resides (e.g. MyDatastore).",
+    )
+    parser.add_argument(
+        "--seachpath",
+        required=True,
+        help="Object path inside the datastore (e.g. /ns/MyNamespace or /ns/MyNamespace/vm/100).",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=min(32, (os.cpu_count() or 4) * 2),
+        help="Number of parallel workers to use when parsing indexes and statting chunk files. "
+             "Defaults to 2× available CPUs (capped at 32).",
+    )
     args = parser.parse_args(argv)
 
+    # ----- Start measuring total execution time -----
     start_ts = time.time()
 
     # ----- Resolve datastore and chunk directory paths -----
     datastore_path = get_datastore_path(args.datastore)
-    search_path = str(Path(datastore_path) / args.search_subpath.lstrip("/"))
+    search_path = str(Path(datastore_path) / args.seachpath.lstrip("/"))
     chunks_root = str(Path(datastore_path) / ".chunks")
 
     print(f"📁 Path to datastore: {datastore_path}")

@@ -36,24 +36,26 @@ The result is the **true storage usage** of the selected backup object.
 
 ### Syntax
 ```bash
-./PBS_Chunk_Checker.py <DATASTORE_NAME> <SEARCH_SUBPATH> [--workers N]
+./PBS_Chunk_Checker.py --datastore <DATASTORE_NAME> --seachpath <SEARCH_PATH> [--workers N]
 ```
 
 ### Examples
 Check the total unique chunk size of a namespace:
 ```bash
-./PBS_Chunk_Checker.py MyDatastore /ns/MyNamespace
+./PBS_Chunk_Checker.py --datastore MyDatastore --seachpath /ns/MyNamespace
 ```
 
 Check the total unique chunk size of a VM within a namespace:
 ```bash
-./PBS_Chunk_Checker.py MyDatastore /ns/MyNamespace/vm/100
+./PBS_Chunk_Checker.py --datastore MyDatastore --seachpath /ns/MyNamespace/vm/100
 ```
 
-### Optional Parameters
-| Option | Description | Default |
-|---------|--------------|----------|
-| `--workers` | Number of parallel workers used for parsing and stat operations | `min(32, 2 × CPU cores)` |
+### Parameters
+| Option | Requirement | Description | Default |
+|--------|-------------|-------------|---------|
+| `--datastore` | Required | PBS datastore name that contains the object you want to analyse | — |
+| `--seachpath` | Required | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
+| `--workers` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
 
 ---
 
