@@ -36,21 +36,36 @@ The result is the **true storage usage** of the selected backup object.
 
 ## ⚙️ Usage
 
-### Syntax
+You can run the checker either from a local copy (useful for repeated runs) or fetch it on the fly without leaving any files behind.
+
+### Local execution
+Clone or download the repository, then run the script with Python.
+
+Syntax:
 ```bash
 ./PBS_Chunk_Checker.py --datastore <DATASTORE_NAME> --seachpath <SEARCH_PATH> [--workers N]
 ```
 
-### Examples
-Check the total unique chunk size of a namespace:
+Examples:
 ```bash
+# Namespace summary
 ./PBS_Chunk_Checker.py --datastore MyDatastore --seachpath /ns/MyNamespace
-```
 
-Check the total unique chunk size of a VM within a namespace:
-```bash
+# VM inside a namespace
 ./PBS_Chunk_Checker.py --datastore MyDatastore --seachpath /ns/MyNamespace/vm/100
 ```
+
+### Portable execution (no local file)
+Stream the script from GitHub and execute it immediately.
+
+```bash
+wget -q -O - https://raw.githubusercontent.com/VoltKraft/PBS_Chunk_Checker/main/PBS_Chunk_Checker.py | python3 - --datastore MyDatastore --seachpath /ns/MyNamespace
+```
+
+Notes:
+- The hyphen after `python3` instructs Python to read the script from STDIN, so no file remains on disk.
+- Replace `MyDatastore` and the search path with your desired PBS datastore and object (e.g. `/ns/MyNamespace/vm/100`).
+- Running it this way always fetches the latest version from the repository.
 
 ### Parameters
 | Option | Requirement | Description | Default |
