@@ -11,10 +11,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple
+from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List
 from collections import Counter 
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 # =============================================================================
 # CLI helpers and shared utilities
@@ -66,6 +66,46 @@ def get_datastore_path(datastore_name: str) -> str:
     sys.exit(1)
 
 
+def list_datastores() -> List[str]:
+    """Return a list of available PBS datastores (best-effort).
+
+    Tries JSON first, falls back to parsing text output. If the command is not
+    available or fails, returns an empty list so the caller can ask for manual input.
+    """
+    try:
+        cp = run_cmd(["proxmox-backup-manager", "datastore", "list", "--output-format", "json"])
+        if cp.stdout:
+            try:
+                data = json.loads(cp.stdout)
+                if isinstance(data, list):
+                    names: List[str] = []
+                    for item in data:
+                        if isinstance(item, dict):
+                            n = item.get("name") or item.get("datastore") or item.get("id")
+                            if isinstance(n, str):
+                                names.append(n)
+                    return sorted(set(names))
+            except json.JSONDecodeError:
+                pass
+    except subprocess.CalledProcessError:
+        pass
+    except FileNotFoundError:
+        return []
+
+    # Fallback: parse plain text
+    try:
+        cp = run_cmd(["proxmox-backup-manager", "datastore", "list"])  # plain text output
+        names2: List[str] = []
+        for line in (cp.stdout or "").splitlines():
+            line = line.strip()
+            m = re.match(r"^([A-Za-z0-9_.-]+)\b", line)
+            if m:
+                names2.append(m.group(1))
+        return sorted(set(names2))
+    except Exception:
+        return []
+
+
 def find_index_files(search_path: str) -> list[str]:
     """Recursively find *.fidx and *.didx under search_path."""
     matches: list[str] = []
@@ -78,6 +118,98 @@ def find_index_files(search_path: str) -> list[str]:
             if name.endswith(".fidx") or name.endswith(".didx"):
                 matches.append(str(Path(root) / name))
     return matches
+
+
+# =============================================================================
+# Interactive helpers (menu-driven mode)
+# =============================================================================
+
+def _prompt_select(prompt: str, options: List[str], allow_manual: bool = True) -> Optional[str]:
+    """Simple numeric selection menu. Returns the chosen string or None if aborted.
+
+    - Shows options enumerated 1..N
+    - 'm' to enter manually (if allowed)
+    - 'q' to abort
+    """
+    while True:
+        print(prompt)
+        for i, opt in enumerate(options, 1):
+            print(f"  {i}) {opt}")
+        extra = []
+        if allow_manual:
+            extra.append("m = enter manually")
+        extra.append("q = quit")
+        print("  (" + ", ".join(extra) + ")")
+        choice = input("> ").strip()
+        if choice.lower() == "q":
+            return None
+        if allow_manual and choice.lower() == "m":
+            manual = input("Enter value: ").strip()
+            if manual:
+                return manual
+            continue
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(options):
+                return options[idx - 1]
+        print("Invalid input, please try again.\n")
+
+
+def _choose_directory(base_path: str) -> Optional[str]:
+    """Interactive directory browser inside base_path.
+
+    Returns absolute path of the chosen directory, or None if aborted.
+    """
+    base = Path(base_path)
+    if not base.is_dir():
+        return None
+
+    current = base
+    while True:
+        rel = "/" if current == base else "/" + str(current.relative_to(base))
+        print(f"\n📂 Current path: {rel}")
+        # List subdirs (skip hidden and .chunks by default)
+        subs = []
+        try:
+            for p in sorted([p for p in current.iterdir() if p.is_dir()], key=lambda x: x.name.lower()):
+                if p.name.startswith('.'):
+                    continue
+                if p.name == ".chunks":
+                    continue
+                subs.append(p)
+        except PermissionError:
+            subs = []
+
+        print("Select a directory:")
+        print("  0) Use current path")
+        for i, p in enumerate(subs, 1):
+            print(f"  {i}) {p.name}")
+        print("  (u = go up one level, m = enter path manually, q = quit)")
+
+        choice = input("> ").strip().lower()
+        if choice == "q":
+            return None
+        if choice == "u":
+            if current != base:
+                current = current.parent
+            continue
+        if choice == "m":
+            manual = input("Enter relative path from datastore (e.g. /ns/MyNamespace): ").strip()
+            if manual:
+                manual = manual.lstrip("/")
+                abs_path = base / manual
+                if abs_path.is_dir():
+                    return str(abs_path)
+                print("Path does not exist. Please try again.")
+            continue
+        if choice.isdigit():
+            idx = int(choice)
+            if idx == 0:
+                return str(current)
+            if 1 <= idx <= len(subs):
+                current = subs[idx - 1]
+                continue
+        print("Invalid input, please try again.")
 
 
 # =============================================================================
@@ -162,7 +294,10 @@ def _progress_line(prefix: str, i: int, total: int, extra: str = "") -> None:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     # ----- Parse CLI arguments and compute runtime defaults -----
     parser = argparse.ArgumentParser(
-        description="Sum actual used chunk sizes for a given PBS datastore object (namespace/VM/CT)."
+        description=(
+            "Sum actual used chunk sizes for a given PBS datastore object (namespace/VM/CT). "
+            "When started without parameters, an interactive menu is shown."
+        )
     )
     parser.add_argument(
         "--version",
@@ -172,12 +307,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     parser.add_argument(
         "--datastore",
-        required=True,
         help="Name of the PBS datastore where the object resides (e.g. MyDatastore).",
     )
     parser.add_argument(
-        "--seachpath",
-        required=True,
+        "--searchpath",
+        dest="searchpath",
         help="Object path inside the datastore (e.g. /ns/MyNamespace or /ns/MyNamespace/vm/100).",
     )
     parser.add_argument(
@@ -189,12 +323,50 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # ----- Interactive mode detection -----
+    interactive = not args.datastore and not args.searchpath
+    if (args.datastore and not args.searchpath) or (args.searchpath and not args.datastore):
+        parser.error("Either provide both --datastore and --searchpath, or none for interactive mode.")
+
+    if interactive:
+        print("PBS Chunk Checker - Interactive Mode\n")
+        # 1) Select or enter datastore
+        stores = list_datastores()
+        if stores:
+            ds = _prompt_select("Select datastore:", stores, allow_manual=True)
+            if ds is None:
+                print("Aborted.")
+                return 130
+            args.datastore = ds
+        else:
+            # Fallback: ask for manual input
+            ds = input("Enter datastore name: ").strip()
+            if not ds:
+                print("No datastore provided. Aborting.")
+                return 130
+            args.datastore = ds
+
+        # Resolve datastore path
+        try:
+            datastore_path = get_datastore_path(args.datastore)
+        except SystemExit:
+            return 1
+
+        # 2) Choose search path via browser or manual entry
+        abs_selected = _choose_directory(datastore_path)
+        if abs_selected is None:
+            print("Aborted.")
+            return 130
+        # Convert to datastore-relative path (prefix with '/')
+        rel = "/" + str(Path(abs_selected).relative_to(datastore_path)) if abs_selected != datastore_path else "/"
+        args.searchpath = rel
+
     # ----- Start measuring total execution time -----
     start_ts = time.time()
 
     # ----- Resolve datastore and chunk directory paths -----
     datastore_path = get_datastore_path(args.datastore)
-    search_path = str(Path(datastore_path) / args.seachpath.lstrip("/"))
+    search_path = str(Path(datastore_path) / args.searchpath.lstrip("/"))
     chunks_root = str(Path(datastore_path) / ".chunks")
 
     print(f"📁 Path to datastore: {datastore_path}")

@@ -7,7 +7,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.1.0 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.2.0 (`./PBS_Chunk_Checker.py --version`)
 
 ---
 
@@ -41,37 +41,57 @@ You can run the checker either from a local copy (useful for repeated runs) or f
 ### Local execution
 Clone or download the repository, then run the script with Python.
 
-Syntax:
+Syntax (script mode):
 ```bash
-./PBS_Chunk_Checker.py --datastore <DATASTORE_NAME> --seachpath <SEARCH_PATH> [--workers N]
+./PBS_Chunk_Checker.py --datastore <DATASTORE_NAME> --searchpath <SEARCH_PATH> [--workers N]
 ```
 
 Examples:
 ```bash
 # Namespace summary
-./PBS_Chunk_Checker.py --datastore MyDatastore --seachpath /ns/MyNamespace
+./PBS_Chunk_Checker.py --datastore MyDatastore --searchpath /ns/MyNamespace
 
 # VM inside a namespace
-./PBS_Chunk_Checker.py --datastore MyDatastore --seachpath /ns/MyNamespace/vm/100
+./PBS_Chunk_Checker.py --datastore MyDatastore --searchpath /ns/MyNamespace/vm/100
 ```
+
+### Interactive mode
+Run without parameters to open a menu for selecting the datastore and the search path:
+
+```bash
+./PBS_Chunk_Checker.py
+```
+
+In interactive mode you can:
+- Select an existing datastore from the list or enter one manually
+- Navigate the datastore directory structure and choose the search path (or enter it manually)
 
 ### Portable execution (no local file)
 Stream the script from GitHub and execute it immediately.
 
+Script mode example:
+
 ```bash
-wget -q -O - https://raw.githubusercontent.com/VoltKraft/PBS_Chunk_Checker/main/PBS_Chunk_Checker.py | python3 - --datastore MyDatastore --seachpath /ns/MyNamespace
+wget -q -O - https://raw.githubusercontent.com/VoltKraft/PBS_Chunk_Checker/main/PBS_Chunk_Checker.py | python3 - --datastore MyDatastore --searchpath /ns/MyNamespace
+```
+
+Interactive mode example:
+
+```bash
+wget -q -O - https://raw.githubusercontent.com/VoltKraft/PBS_Chunk_Checker/main/PBS_Chunk_Checker.py | python3 -
 ```
 
 Notes:
 - The hyphen after `python3` instructs Python to read the script from STDIN, so no file remains on disk.
 - Replace `MyDatastore` and the search path with your desired PBS datastore and object (e.g. `/ns/MyNamespace/vm/100`).
 - Running it this way always fetches the latest version from the repository.
+- When both `--datastore` and `--searchpath` are omitted, the interactive mode starts automatically.
 
 ### Parameters
 | Option | Requirement | Description | Default |
 |--------|-------------|-------------|---------|
-| `--datastore` | Required | PBS datastore name that contains the object you want to analyse | — |
-| `--seachpath` | Required | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
+| `--datastore` | Required (script mode) | PBS datastore name that contains the object you want to analyse | — |
+| `--searchpath` | Required (script mode) | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
 | `--workers` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
 | `--version` | Optional | Show the script version and exit | — |
 
@@ -106,14 +126,4 @@ Notes:
 
 ---
 
-## 🚀 Performance Improvements
-
-This new Python version is designed for **significantly faster processing**:
-- Parallelized parsing and chunk size summation with `ThreadPoolExecutor`
-- Reduced overhead by avoiding file I/O redirection and external logging
-- Efficient deduplication using Python’s `Counter` and `set` types
-
----
-
 **Author:** Jan Paulzen (VoltKraft) 
-**Version:** 2.1.0 (Python rewrite, performance-optimized)
