@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple
 from collections import Counter 
 
+__version__ = "2.1.0"
+
 # =============================================================================
 # CLI helpers and shared utilities
 # =============================================================================
@@ -161,6 +163,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # ----- Parse CLI arguments and compute runtime defaults -----
     parser = argparse.ArgumentParser(
         description="Sum actual used chunk sizes for a given PBS datastore object (namespace/VM/CT)."
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show program version and exit.",
     )
     parser.add_argument(
         "--datastore",

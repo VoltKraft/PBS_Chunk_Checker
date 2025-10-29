@@ -7,6 +7,8 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
+**Current version:** 2.1.0 (`./PBS_Chunk_Checker.py --version`)
+
 ---
 
 ## 💡 Why This Script Exists
@@ -56,6 +58,7 @@ Check the total unique chunk size of a VM within a namespace:
 | `--datastore` | Required | PBS datastore name that contains the object you want to analyse | — |
 | `--seachpath` | Required | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
 | `--workers` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
+| `--version` | Optional | Show the script version and exit | — |
 
 ---
 
@@ -98,4 +101,4 @@ This new Python version is designed for **significantly faster processing**:
 ---
 
 **Author:** Jan Paulzen (VoltKraft) 
-**Version:** 2.0 (Python rewrite, performance-optimized)
+**Version:** 2.1.0 (Python rewrite, performance-optimized)
