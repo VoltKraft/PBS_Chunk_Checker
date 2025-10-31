@@ -93,6 +93,7 @@ Notes:
 | `--datastore` | Required (script mode) | PBS datastore name that contains the object you want to analyse | — |
 | `--searchpath` | Required (script mode) | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
 | `--workers` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
+| `--no-emoji` | Optional | Replace emoji icons in CLI output with ASCII labels | Emoji output |
 | `--version` | Optional | Show the script version and exit | — |
 
 ---
@@ -123,7 +124,9 @@ Notes:
 - It must be executed **directly on a PBS host** because it depends on:
   - `proxmox-backup-manager`
   - `proxmox-backup-debug`
+- The script validates that these CLI tools are available before starting and aborts with an actionable error if they are missing.
+- Use the `--no-emoji` flag when your terminal cannot display Unicode emoji; the script will switch to ASCII labels automatically.
 
 ---
 
-**Author:** Jan Paulzen (VoltKraft) 
+**Author:** Jan Paulzen (VoltKraft)
