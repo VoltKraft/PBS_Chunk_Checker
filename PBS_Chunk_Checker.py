@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict
 from collections import Counter 
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 # =============================================================================
 # CLI helpers and shared utilities
