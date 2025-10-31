@@ -48,21 +48,54 @@ def run_cmd(cmd: Sequence[str], check: bool = True, capture: bool = True, text: 
 
 def get_datastore_path(datastore_name: str) -> str:
     """Resolve the filesystem path of a PBS datastore via proxmox-backup-manager."""
+    last_error = ""
     try:
-        cp = run_cmd(["proxmox-backup-manager", "datastore", "show", datastore_name, "--output-format", "json"])
-        data = json.loads(cp.stdout) if cp.stdout else {}
-        path = data.get("path")
-        if path:
-            return path
-    except subprocess.CalledProcessError:
-        pass
+        cp = run_cmd(
+            ["proxmox-backup-manager", "datastore", "show", datastore_name, "--output-format", "json"],
+            check=False,
+        )
+        if cp.returncode == 0 and cp.stdout:
+            try:
+                data = json.loads(cp.stdout)
+            except json.JSONDecodeError:
+                data = {}
+            path = data.get("path")
+            if path:
+                return path
+        if cp.returncode != 0:
+            err_msg = ""
+            if cp.stderr:
+                err_msg = cp.stderr.strip()
+            elif cp.stdout:
+                err_msg = cp.stdout.strip()
+            if err_msg:
+                last_error = err_msg
+    except FileNotFoundError:
+        raise
 
-    cp = run_cmd(["proxmox-backup-manager", "datastore", "show", datastore_name])
-    m = re.search(r'"path"\s*:\s*"([^"]+)"', cp.stdout)
-    if m:
-        return m.group(1)
+    try:
+        cp = run_cmd(
+            ["proxmox-backup-manager", "datastore", "show", datastore_name],
+            check=False,
+        )
+        m = re.search(r'"path"\s*:\s*"([^"]+)"', cp.stdout or "")
+        if m:
+            return m.group(1)
+        if cp.returncode != 0:
+            err_msg = ""
+            if cp.stderr:
+                err_msg = cp.stderr.strip()
+            elif cp.stdout:
+                err_msg = cp.stdout.strip()
+            if err_msg:
+                last_error = err_msg
+    except FileNotFoundError:
+        raise
 
-    sys.stderr.write(f"❌ Error: Datastore '{datastore_name}' not found or path not resolvable.\n")
+    if not last_error:
+        last_error = f"Datastore '{datastore_name}' not found or path not resolvable."
+
+    sys.stderr.write(f"❌ Error: {last_error}\n")
     sys.exit(1)
 
 
