@@ -85,7 +85,7 @@ ASCII_ICONS: Dict[str, str] = {
 
 def clear_console() -> None:
     """Clear the terminal similar to the POSIX 'clear' command."""
-    # ANSI full reset works for most modern terminals, including modern Windows terminals
+    # ANSI full reset works for Linux terminal emulators
     print("\033c", end="", flush=True)
 
 def format_elapsed(seconds: float) -> str:

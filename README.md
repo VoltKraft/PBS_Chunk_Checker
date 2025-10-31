@@ -7,7 +7,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.4.0 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.4.1 (`./PBS_Chunk_Checker.py --version`)
 
 ---
 
@@ -136,6 +136,7 @@ Notes:
 ## ⚠️ Notes
 
 - The script requires **no additional Python packages** — it uses only built-in modules.
+- Runs on **Linux PBS hosts**; other operating systems are not supported.
 - It must be executed **directly on a PBS host** because it depends on:
   - `proxmox-backup-manager`
   - `proxmox-backup-debug`
