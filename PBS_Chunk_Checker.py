@@ -12,9 +12,40 @@ import sys
 import time
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict
-from collections import Counter 
+from collections import Counter
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
+
+COMMAND_PATHS: Dict[str, str] = {}
+DEFAULT_PATH_SEGMENTS = [
+    str(p)
+    for p in (
+        Path("/usr/sbin"),
+        Path("/usr/bin"),
+        Path("/sbin"),
+        Path("/bin"),
+    )
+    if p.exists()
+]
+COMMAND_ENV = os.environ.copy()
+if DEFAULT_PATH_SEGMENTS:
+    COMMAND_ENV["PATH"] = os.pathsep.join(list(dict.fromkeys(DEFAULT_PATH_SEGMENTS)))
+else:
+    COMMAND_ENV["PATH"] = COMMAND_ENV.get("PATH", "")
+COMMAND_ENV.setdefault("LC_ALL", "C")
+COMMAND_ENV.setdefault("LANG", "C")
+COMMAND_TIMEOUTS = {
+    "manager_list": 10,
+    "manager_show": 10,
+    "debug_inspect": 60,
+}
+DATASTORE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _format_command(cmd: object) -> str:
+    if isinstance(cmd, (list, tuple)):
+        return " ".join(str(part) for part in cmd)
+    return str(cmd)
 
 # =============================================================================
 # CLI helpers and shared utilities
@@ -54,11 +85,8 @@ ASCII_ICONS: Dict[str, str] = {
 
 def clear_console() -> None:
     """Clear the terminal similar to the POSIX 'clear' command."""
-    if os.name == "nt":
-        os.system("cls")
-    else:
-        # ANSI full reset works for most modern terminals
-        print("\033c", end="", flush=True)
+    # ANSI full reset works for most modern terminals, including modern Windows terminals
+    print("\033c", end="", flush=True)
 
 def format_elapsed(seconds: float) -> str:
     """Return a compact runtime string like '1h 02m 03s'."""
@@ -81,17 +109,43 @@ def human_readable_size(num_bytes: int) -> str:
         size /= 1024.0
 
 
-def run_cmd(cmd: Sequence[str], check: bool = True, capture: bool = True, text: bool = True) -> subprocess.CompletedProcess:
+def run_cmd(
+    cmd: Sequence[str],
+    check: bool = True,
+    capture: bool = True,
+    text: bool = True,
+    timeout: Optional[float] = None,
+) -> subprocess.CompletedProcess:
     """Run a command and return the CompletedProcess. Raises on failure if check=True."""
     try:
+        if not cmd:
+            raise ValueError("Command must not be empty.")
+        command = [str(part) for part in cmd]
+        resolved = COMMAND_PATHS.get(command[0])
+        if resolved:
+            command[0] = resolved
         return subprocess.run(
-            cmd,
+            command,
             check=check,
             capture_output=capture,
             text=text,
+            timeout=timeout,
+            env=COMMAND_ENV,
         )
     except FileNotFoundError as e:
         sys.stderr.write(f"{ICONS['error']} Error: required command not found: {cmd[0]}\n")
+        raise
+    except subprocess.TimeoutExpired as e:
+        executed = _format_command(command)
+        timeout_val = timeout if timeout is not None else e.timeout
+        timeout_desc = (
+            f"{int(timeout_val)}s"
+            if isinstance(timeout_val, (int, float))
+            else "configured limit"
+        )
+        sys.stderr.write(
+            f"{ICONS['error']} Error: command timed out after {timeout_desc}: {executed}\n"
+        )
         raise
 
 
@@ -102,6 +156,7 @@ def get_datastore_path(datastore_name: str) -> str:
         cp = run_cmd(
             ["proxmox-backup-manager", "datastore", "show", datastore_name, "--output-format", "json"],
             check=False,
+            timeout=COMMAND_TIMEOUTS["manager_show"],
         )
         if cp.returncode == 0 and cp.stdout:
             try:
@@ -119,6 +174,8 @@ def get_datastore_path(datastore_name: str) -> str:
                 err_msg = cp.stdout.strip()
             if err_msg:
                 last_error = err_msg
+    except subprocess.TimeoutExpired as exc:
+        last_error = f"{_format_command(exc.cmd)} timed out after {COMMAND_TIMEOUTS['manager_show']}s"
     except FileNotFoundError:
         raise
 
@@ -126,6 +183,7 @@ def get_datastore_path(datastore_name: str) -> str:
         cp = run_cmd(
             ["proxmox-backup-manager", "datastore", "show", datastore_name],
             check=False,
+            timeout=COMMAND_TIMEOUTS["manager_show"],
         )
         m = re.search(r'"path"\s*:\s*"([^"]+)"', cp.stdout or "")
         if m:
@@ -138,6 +196,8 @@ def get_datastore_path(datastore_name: str) -> str:
                 err_msg = cp.stdout.strip()
             if err_msg:
                 last_error = err_msg
+    except subprocess.TimeoutExpired as exc:
+        last_error = f"{_format_command(exc.cmd)} timed out after {COMMAND_TIMEOUTS['manager_show']}s"
     except FileNotFoundError:
         raise
 
@@ -169,16 +229,43 @@ def list_datastores() -> List[str]:
                     return sorted(set(names))
             except json.JSONDecodeError:
                 pass
+    except subprocess.TimeoutExpired:
+        return []
     except subprocess.CalledProcessError:
         pass
     except FileNotFoundError:
         return []
 
+    try:
+        cp = run_cmd(
+            ["proxmox-backup-manager", "datastore", "list"],
+            timeout=COMMAND_TIMEOUTS["manager_list"],
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return []
+
+    names2: List[str] = []
+    for line in (cp.stdout or "").splitlines():
+        line = line.strip()
+        m = re.match(r"^([A-Za-z0-9_.-]+)\b", line)
+        if m:
+            names2.append(m.group(1))
+    return sorted(set(names2))
+
 
 def ensure_required_tools() -> None:
     """Verify that required PBS CLI tools are available before proceeding."""
+    global COMMAND_ENV
     required = ["proxmox-backup-manager", "proxmox-backup-debug"]
-    missing = [cmd for cmd in required if shutil.which(cmd) is None]
+    resolved: Dict[str, str] = {}
+    missing = []
+    for cmd in required:
+        path = shutil.which(cmd)
+        if path is None:
+            missing.append(cmd)
+            continue
+        resolved[cmd] = str(Path(path).resolve())
+
     if missing:
         missing_str = ", ".join(sorted(set(missing)))
         sys.stderr.write(
@@ -187,18 +274,20 @@ def ensure_required_tools() -> None:
         sys.stderr.write("Please install the Proxmox Backup Server CLI tools and retry.\n")
         sys.exit(1)
 
-    # Fallback: parse plain text
-    try:
-        cp = run_cmd(["proxmox-backup-manager", "datastore", "list"])  # plain text output
-        names2: List[str] = []
-        for line in (cp.stdout or "").splitlines():
-            line = line.strip()
-            m = re.match(r"^([A-Za-z0-9_.-]+)\b", line)
-            if m:
-                names2.append(m.group(1))
-        return sorted(set(names2))
-    except Exception:
-        return []
+    COMMAND_PATHS.update(resolved)
+
+    path_entries: List[str] = []
+    for command_path in resolved.values():
+        parent = str(Path(command_path).parent)
+        if parent not in path_entries:
+            path_entries.append(parent)
+    for default_dir in DEFAULT_PATH_SEGMENTS:
+        if default_dir not in path_entries:
+            path_entries.append(default_dir)
+    if not path_entries and COMMAND_ENV.get("PATH"):
+        path_entries = COMMAND_ENV["PATH"].split(os.pathsep)
+    if path_entries:
+        COMMAND_ENV["PATH"] = os.pathsep.join(path_entries)
 
 
 def find_index_files(search_path: str) -> list[str]:
@@ -213,6 +302,19 @@ def find_index_files(search_path: str) -> list[str]:
             if name.endswith(".fidx") or name.endswith(".didx"):
                 matches.append(str(Path(root) / name))
     return matches
+
+
+def resolve_search_path(datastore_path: str, searchpath: str) -> Path:
+    """Return an absolute path inside datastore_path for the provided searchpath."""
+    base = Path(datastore_path).resolve()
+    relative = (searchpath or "").lstrip("/")
+    candidate = base if not relative else (base / relative)
+    candidate = candidate.resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError("Search path escapes datastore root.") from exc
+    return candidate
 
 
 # =============================================================================
@@ -352,6 +454,7 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
         cp = run_cmd(
             ["proxmox-backup-debug", "inspect", "file", "--output-format", "json", index_file],
             check=False,
+            timeout=COMMAND_TIMEOUTS["debug_inspect"],
         )
         if cp.returncode == 0 and cp.stdout:
             parsed = _parse_chunks_from_json(cp.stdout)
@@ -361,6 +464,10 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
             sys.stderr.write(
                 f"{ICONS['warning']} Warning: failed to inspect {index_file} (json): {cp.stderr.strip()}\n"
             )
+    except subprocess.TimeoutExpired as exc:
+        sys.stderr.write(
+            f"{ICONS['warning']} Warning: {_format_command(exc.cmd)} timed out while inspecting {index_file} (json).\n"
+        )
     except FileNotFoundError:
         raise RuntimeError("Required command 'proxmox-backup-debug' not available.") from None
 
@@ -368,7 +475,13 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
         cp_text = run_cmd(
             ["proxmox-backup-debug", "inspect", "file", "--output-format", "text", index_file],
             check=False,
+            timeout=COMMAND_TIMEOUTS["debug_inspect"],
         )
+    except subprocess.TimeoutExpired as exc:
+        sys.stderr.write(
+            f"{ICONS['warning']} Warning: {_format_command(exc.cmd)} timed out while inspecting {index_file} (text).\n"
+        )
+        return set()
     except FileNotFoundError:
         raise RuntimeError("Required command 'proxmox-backup-debug' not available.") from None
 
@@ -487,6 +600,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 return 130
             args.datastore = ds
 
+        if not DATASTORE_PATTERN.fullmatch(args.datastore):
+            sys.stderr.write(
+                f"{ICONS['error']} Error: invalid datastore name '{args.datastore}'. "
+                "Only letters, digits, '.', '_', and '-' are allowed.\n"
+            )
+            return 1
+
         # Resolve datastore path
         try:
             datastore_path = get_datastore_path(args.datastore)
@@ -513,6 +633,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         rel = "/" + str(Path(abs_selected).relative_to(datastore_path)) if abs_selected != datastore_path else "/"
         args.searchpath = rel
 
+    elif not DATASTORE_PATTERN.fullmatch(args.datastore or ""):
+        sys.stderr.write(
+            f"{ICONS['error']} Error: invalid datastore name '{args.datastore}'. "
+            "Only letters, digits, '.', '_', and '-' are allowed.\n"
+        )
+        return 1
+
     # ----- Start measuring total execution time -----
     start_ts = time.time()
 
@@ -525,20 +652,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         return 1
 
-    if not Path(datastore_path).is_dir():
+    datastore_root = Path(datastore_path).resolve()
+    if not datastore_root.is_dir():
         sys.stderr.write(
-            f"{ICONS['error']} Error: datastore path is not a directory → {datastore_path}\n"
+            f"{ICONS['error']} Error: datastore path is not a directory → {datastore_root}\n"
         )
         return 1
 
-    search_path = str(Path(datastore_path) / args.searchpath.lstrip("/"))
-    chunks_root = str(Path(datastore_path) / ".chunks")
+    try:
+        search_path_obj = resolve_search_path(str(datastore_root), args.searchpath or "/")
+    except ValueError as exc:
+        sys.stderr.write(f"{ICONS['error']} Error: {exc}\n")
+        return 1
 
-    print(f"{ICONS['folder']} Path to datastore: {datastore_path}")
+    chunks_root = datastore_root / ".chunks"
+    search_path = str(search_path_obj)
+
+    print(f"{ICONS['folder']} Path to datastore: {datastore_root}")
     print(f"{ICONS['chunk']} Chunk path: {chunks_root}")
     print(f"{ICONS['folder']} Search path: {search_path}")
 
-    if not Path(search_path).is_dir():
+    if not search_path_obj.is_dir():
         sys.stderr.write(f"{ICONS['error']} Error: folder does not exist → {search_path}\n")
         return 1
 
