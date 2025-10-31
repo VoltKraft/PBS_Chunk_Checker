@@ -7,7 +7,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.3.0 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.4.0 (`./PBS_Chunk_Checker.py --version`)
 
 ---
 
@@ -102,19 +102,34 @@ Notes:
 
 ```
 📁 Path to datastore: /mnt/datastore/MyDatastore
+📦 Chunk path: /mnt/datastore/MyDatastore/.chunks
 📁 Search path: /mnt/datastore/MyDatastore/ns/MyNamespace
-📁 Chunk path: /mnt/datastore/MyDatastore/.chunks
 
 💾 Saving all used chunks
-📄 Index 75/75
+📄 Index 75/75 | ⏱️ 02m 15s
 ➕ Summing up chunks
-📦 Chunk 12450/12450 | 🧮 Size so far: 1.23TiB
+📦 Chunk 12450/12450 | 🧮 Size so far: 1.23TiB | ⏱️ 12m 09s
 
 🧮 Total size: 1356782934123 Bytes (1.23TiB)
-⏱️ Evaluation duration: 0 hours, 24 minutes, and 32 seconds
-🧩 Unique chunks: 12450 (91.45% unique, 8.55% duplicates)
-📁 Searched object: /ns/MyNamespace
+⏱️ Evaluation duration: 12m 10s
+🧩 Chunk usage summary:
+  Unique chunks    : 8505 (9.59%) | 12.2GiB
+  Duplicate refs   : 80186 (90.41%) | 186.2GiB
+  Total references : 88692 (198.4GiB)
 ```
+
+---
+
+## 🧾 Output Details
+
+- Clear console on start for a clean view.
+- Path header order: datastore path → chunk path → search path.
+- Live runtime timer (⏱️) on both index and chunk progress lines.
+- Total size prints the actual on-disk size of unique chunks referenced by the selected object.
+- Chunk usage summary:
+  - Unique chunks: number of distinct chunk digests, share of all references, and their total size.
+  - Duplicate refs: additional references to already-counted chunks and their logical size.
+  - Total references: overall reference count and the logical size when counting duplicates.
 
 ---
 

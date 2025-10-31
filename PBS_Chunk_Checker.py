@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict
 from collections import Counter 
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 
 # =============================================================================
 # CLI helpers and shared utilities
@@ -51,6 +51,23 @@ ASCII_ICONS: Dict[str, str] = {
     "puzzle": "[DETAIL]",
     "missing": "[MISSING]",
 }
+
+def clear_console() -> None:
+    """Clear the terminal similar to the POSIX 'clear' command."""
+    if os.name == "nt":
+        os.system("cls")
+    else:
+        # ANSI full reset works for most modern terminals
+        print("\033c", end="", flush=True)
+
+def format_elapsed(seconds: float) -> str:
+    """Return a compact runtime string like '1h 02m 03s'."""
+    seconds_int = int(seconds)
+    hours, remainder = divmod(seconds_int, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02}m {secs:02}s"
+    return f"{minutes}m {secs:02}s"
 
 def human_readable_size(num_bytes: int) -> str:
     """Format bytes using IEC units with 'B' suffix (e.g., '1.0KiB')."""
@@ -437,6 +454,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.no_emoji:
         ICONS.update(ASCII_ICONS)
+    clear_console()
 
     ensure_required_tools()
 
@@ -517,8 +535,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     chunks_root = str(Path(datastore_path) / ".chunks")
 
     print(f"{ICONS['folder']} Path to datastore: {datastore_path}")
-    print(f"{ICONS['folder']} Search path: {search_path}")
     print(f"{ICONS['chunk']} Chunk path: {chunks_root}")
+    print(f"{ICONS['folder']} Search path: {search_path}")
 
     if not Path(search_path).is_dir():
         sys.stderr.write(f"{ICONS['error']} Error: folder does not exist → {search_path}\n")
@@ -545,13 +563,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except Exception as e:
                 sys.stderr.write(f"\n{ICONS['warning']} Warning: failed to parse {futs[fut]}: {e}\n")
             processed += 1
-            _progress_line(f"{ICONS['index']} Index", processed, total_files)
+            elapsed_display = format_elapsed(time.time() - start_ts)
+            _progress_line(
+                f"{ICONS['index']} Index",
+                processed,
+                total_files,
+                f"| {ICONS['timer']} {elapsed_display}",
+            )
 
     print()
 
     chunk_counter_total = sum(digest_counter.values())
     total_unique = len(digest_counter)
-    duplicate_ratio = (1 - total_unique / chunk_counter_total) * 100 if chunk_counter_total else 0
 
     if total_unique == 0:
         print(f"{ICONS['info']} No chunks referenced. Nothing to sum.")
@@ -562,7 +585,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     missing_count = 0
     summed = 0
-    total_bytes = 0
+    unique_bytes = 0
+    duplicate_bytes = 0
 
     def _stat_one(digest: str) -> Tuple[int, bool]:
         path = chunk_path_for_digest(chunks_root, digest)
@@ -575,7 +599,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         for fut in futures.as_completed(futs2):
             try:
                 size, missing = fut.result()
-                total_bytes += size
+                unique_bytes += size
+                occurrences = digest_counter[futs2[fut]]
+                if occurrences > 1 and size:
+                    duplicate_bytes += size * (occurrences - 1)
                 if missing:
                     missing_count += 1
                     print(
@@ -585,33 +612,43 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except Exception as e:
                 sys.stderr.write(f"\n{ICONS['warning']} Warning: failed to stat chunk {futs2[fut]}: {e}\n")
             summed += 1
+            elapsed_display = format_elapsed(time.time() - start_ts)
             _progress_line(
                 f"{ICONS['chunk']} Chunk",
                 summed,
                 total_unique,
-                f"| {ICONS['total']} Size so far: {human_readable_size(total_bytes)}",
+                f"| {ICONS['total']} Size so far: {human_readable_size(unique_bytes)} "
+                f"| {ICONS['timer']} {elapsed_display}",
             )
 
     print()
     print("\033[2K", end="")
 
-    print(f"{ICONS['total']} Total size: {total_bytes} Bytes ({human_readable_size(total_bytes)})")
+    print(f"{ICONS['total']} Total size: {unique_bytes} Bytes ({human_readable_size(unique_bytes)})")
 
-    end_ts = time.time()
-    duration = int(end_ts - start_ts)
-    hours = duration // 3600
-    minutes = (duration % 3600) // 60
-    seconds = duration % 60
-    print(f"{ICONS['timer']} Evaluation duration: {hours} hours, {minutes} minutes, and {seconds} seconds")
+    total_elapsed = format_elapsed(time.time() - start_ts)
+    print(f"{ICONS['timer']} Evaluation duration: {total_elapsed}")
 
+    duplicate_count = chunk_counter_total - total_unique
+    unique_percent = (total_unique / chunk_counter_total * 100) if chunk_counter_total else 0.0
+    duplicate_percent = 100.0 - unique_percent if chunk_counter_total else 0.0
+    print(f"{ICONS['puzzle']} Chunk usage summary:")
     print(
-        f"{ICONS['puzzle']} Unique chunks: {total_unique} ({100 - duplicate_ratio:.2f}% unique, {duplicate_ratio:.2f}% duplicates)"
+        f"  Unique chunks    : {total_unique} ({unique_percent:.2f}%) "
+        f"| {human_readable_size(unique_bytes)}"
+    )
+    print(
+        f"  Duplicate refs   : {duplicate_count} ({duplicate_percent:.2f}%) "
+        f"| {human_readable_size(duplicate_bytes)}"
+    )
+    print(
+        f"  Total references : {chunk_counter_total} "
+        f"({human_readable_size(unique_bytes + duplicate_bytes)})"
     )
 
     if missing_count:
         print(f"{ICONS['warning']} Missing chunk files: {missing_count}")
 
-    print(f"{ICONS['folder']} Searched object: {search_path}")
     return 0
 
 
