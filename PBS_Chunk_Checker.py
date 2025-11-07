@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict
 from collections import Counter
 
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 
 COMMAND_PATHS: Dict[str, str] = {}
 DEFAULT_PATH_SEGMENTS = [
@@ -328,8 +328,13 @@ def _prompt_select(prompt: str, options: List[str], allow_manual: bool = True) -
     - 'm' to enter manually (if allowed)
     - 'q' to abort
     """
+    feedback = ""
     while True:
+        clear_console()
         print(prompt)
+        if feedback:
+            print(f"{feedback}\n")
+            feedback = ""
         for i, opt in enumerate(options, 1):
             print(f"  {i}) {opt}")
         extra = []
@@ -341,15 +346,17 @@ def _prompt_select(prompt: str, options: List[str], allow_manual: bool = True) -
         if choice.lower() == "q":
             return None
         if allow_manual and choice.lower() == "m":
+            clear_console()
             manual = input("Enter value: ").strip()
             if manual:
                 return manual
+            feedback = "No value entered. Please try again."
             continue
         if choice.isdigit():
             idx = int(choice)
             if 1 <= idx <= len(options):
                 return options[idx - 1]
-        print("Invalid input, please try again.\n")
+        feedback = "Invalid input, please try again."
 
 
 def _choose_directory(base_path: str) -> Optional[str]:
@@ -362,9 +369,14 @@ def _choose_directory(base_path: str) -> Optional[str]:
         return None
 
     current = base
+    feedback = ""
     while True:
+        clear_console()
         rel = "/" if current == base else "/" + str(current.relative_to(base))
         print(f"\n{ICONS['folder_current']} Current path: {rel}")
+        if feedback:
+            print(f"{feedback}\n")
+            feedback = ""
         # List subdirs (skip hidden and .chunks by default)
         subs = []
         try:
@@ -391,13 +403,16 @@ def _choose_directory(base_path: str) -> Optional[str]:
                 current = current.parent
             continue
         if choice == "m":
+            clear_console()
             manual = input("Enter relative path from datastore (e.g. /ns/MyNamespace): ").strip()
             if manual:
                 manual = manual.lstrip("/")
                 abs_path = base / manual
                 if abs_path.is_dir():
                     return str(abs_path)
-                print("Path does not exist. Please try again.")
+                feedback = "Path does not exist. Please try again."
+            else:
+                feedback = "No path entered. Please try again."
             continue
         if choice.isdigit():
             idx = int(choice)
@@ -406,7 +421,7 @@ def _choose_directory(base_path: str) -> Optional[str]:
             if 1 <= idx <= len(subs):
                 current = subs[idx - 1]
                 continue
-        print("Invalid input, please try again.")
+        feedback = "Invalid input, please try again."
 
 
 # =============================================================================
@@ -583,17 +598,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("Either provide both --datastore and --searchpath, or none for interactive mode.")
 
     if interactive:
-        print("PBS Chunk Checker - Interactive Mode\n")
+        header = "PBS Chunk Checker - Interactive Mode"
         # 1) Select or enter datastore
         stores = list_datastores()
         if stores:
-            ds = _prompt_select("Select datastore:", stores, allow_manual=True)
+            ds = _prompt_select(f"{header}\n\nSelect datastore:", stores, allow_manual=True)
             if ds is None:
                 print("Aborted.")
                 return 130
             args.datastore = ds
         else:
             # Fallback: ask for manual input
+            clear_console()
+            print(f"{header}\n")
             ds = input("Enter datastore name: ").strip()
             if not ds:
                 print("No datastore provided. Aborting.")
@@ -632,6 +649,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # Convert to datastore-relative path (prefix with '/')
         rel = "/" + str(Path(abs_selected).relative_to(datastore_path)) if abs_selected != datastore_path else "/"
         args.searchpath = rel
+        clear_console()
 
     elif not DATASTORE_PATTERN.fullmatch(args.datastore or ""):
         sys.stderr.write(
