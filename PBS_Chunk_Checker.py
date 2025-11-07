@@ -69,6 +69,7 @@ EMOJI_ICONS: Dict[str, str] = {
     "timer": "⏱️",
     "puzzle": "🧩",
     "missing": "❌",
+    "threads": "🧵",
 }
 
 ASCII_ICONS: Dict[str, str] = {
@@ -85,6 +86,7 @@ ASCII_ICONS: Dict[str, str] = {
     "timer": "[TIME]",
     "puzzle": "[DETAIL]",
     "missing": "[MISSING]",
+    "threads": "[THREADS]",
 }
 
 ICONS: Dict[str, str] = EMOJI_ICONS.copy()
@@ -538,31 +540,31 @@ def _curses_show_version(stdscr: object) -> None:
     _curses_popup(stdscr, "Version", [f"PBS_Chunk_Checker version {__version__}"])
 
 
-def _curses_workers_dialog(stdscr: object, args) -> None:
+def _curses_threads_dialog(stdscr: object, args) -> None:
     lines = [
-        "Workers control the number of parallel threads used to:",
+        "Threads control the number of parallel operations used to:",
         "  - parse index files (*.fidx/*.didx)",
         "  - stat chunk files under .chunks",
         "",
-        f"Current value: {args.workers}",
+        f"Current value: {args.threads}",
         "",
         "Enter a number between 1 and 32.",
         "Leave blank to keep the current value.",
     ]
-    result = _curses_popup(stdscr, "Worker Settings", lines, prompt="New worker count: ")
+    result = _curses_popup(stdscr, "Thread Settings", lines, prompt="New thread count: ")
     if result is None:
         return
     if not result:
         return
     if not result.isdigit():
-        _curses_popup(stdscr, "Worker Settings", ["Please enter a positive integer."])
+        _curses_popup(stdscr, "Thread Settings", ["Please enter a positive integer."])
         return
     val = int(result)
     if val < 1 or val > 32:
-        _curses_popup(stdscr, "Worker Settings", ["Workers must be between 1 and 32."])
+        _curses_popup(stdscr, "Thread Settings", ["Threads must be between 1 and 32."])
         return
-    args.workers = val
-    _curses_popup(stdscr, "Worker Settings", [f"Workers set to {val}."])
+    args.threads = val
+    _curses_popup(stdscr, "Thread Settings", [f"Threads set to {val}."])
 
 
 def _text_show_version() -> None:
@@ -571,15 +573,15 @@ def _text_show_version() -> None:
     input("Press Enter to continue...")
 
 
-def _text_workers_dialog(args) -> None:
+def _text_threads_dialog(args) -> None:
     while True:
         clear_console()
-        print("PBS_Chunk_Checker - Worker Settings\n")
-        print("Workers control the number of parallel threads used to:")
+        print("PBS_Chunk_Checker - Thread Settings\n")
+        print("Threads control the number of parallel operations used to:")
         print("  - parse index files (*.fidx/*.didx)")
         print("  - stat chunk files under .chunks\n")
-        print(f"Current workers: {args.workers}\n")
-        typed = input("Enter new worker count (1-32), or leave blank to keep: ").strip()
+        print(f"Current threads: {args.threads}\n")
+        typed = input("Enter new thread count (1-32), or leave blank to keep: ").strip()
         if not typed:
             return
         if not typed.isdigit():
@@ -587,19 +589,19 @@ def _text_workers_dialog(args) -> None:
             continue
         val = int(typed)
         if val < 1 or val > 32:
-            input("Workers must be between 1 and 32. Press Enter to retry...")
+            input("Threads must be between 1 and 32. Press Enter to retry...")
             continue
-        args.workers = val
-        print(f"\nWorkers set to {val}.")
+        args.threads = val
+        print(f"\nThreads set to {val}.")
         input("Press Enter to continue...")
         return
 
 
-def _show_workers_dialog(args, stdscr: Optional[object]) -> None:
+def _show_threads_dialog(args, stdscr: Optional[object]) -> None:
     if stdscr is not None and curses is not None:
-        _curses_workers_dialog(stdscr, args)
+        _curses_threads_dialog(stdscr, args)
     else:
-        _text_workers_dialog(args)
+        _text_threads_dialog(args)
 
 
 def _show_version_dialog(stdscr: Optional[object]) -> None:
@@ -629,7 +631,7 @@ def _options_menu_curses(stdscr: object, args) -> None:
 
     def _entries() -> List[Tuple[str, str]]:
         return [
-            ("workers", f"Set workers ({args.workers})"),
+            ("threads", f"Set threads ({args.threads})"),
             ("emoji", f"Emoji output [{_emoji_checkbox()}]"),
             ("back", "Back"),
         ]
@@ -689,8 +691,8 @@ def _options_menu_curses(stdscr: object, args) -> None:
             idx = len(entries) - 1
         elif ch in (10, 13):
             action = entries[idx][0]
-            if action == "workers":
-                _curses_workers_dialog(stdscr, args)
+            if action == "threads":
+                _curses_threads_dialog(stdscr, args)
                 notice = ""
             elif action == "emoji":
                 _toggle_emoji_setting(args, stdscr)
@@ -713,7 +715,7 @@ def _options_menu_text(args) -> None:
         print("PBS_Chunk_Checker - Options\n")
         if notice:
             print(f"{notice}\n")
-        print(f" 1) Set workers ({args.workers})")
+        print(f" 1) Set threads ({args.threads})")
         emoji_state = "enabled" if _EMOJI_ENABLED else "disabled"
         print(f" 2) Emoji output [{_emoji_checkbox()} - {emoji_state}]")
         print(" q) Back")
@@ -723,7 +725,7 @@ def _options_menu_text(args) -> None:
         else:
             choice = raw.strip().lower()
         if choice == "1":
-            _text_workers_dialog(args)
+            _text_threads_dialog(args)
             notice = ""
         elif choice in ("2", "space"):
             _toggle_emoji_setting(args, None)
@@ -1124,7 +1126,8 @@ def stat_size_if_exists(path: Path) -> int:
 # =============================================================================
 
 def _progress_line(prefix: str, i: int, total: int, extra: str = "") -> None:
-    msg = f"\r\033[K{prefix} {i}/{total} {extra}"
+    pct = (i / total * 100.0) if total else 0.0
+    msg = f"\r\033[K{prefix} {i}/{total} ({pct:6.2f}%) {extra}"
     print(msg, end="", flush=True)
 
 
@@ -1133,10 +1136,10 @@ def _progress_line(prefix: str, i: int, total: int, extra: str = "") -> None:
 # =============================================================================
 
 def _interactive_menu(args) -> Optional[Tuple[str, str]]:
-    """Main interactive flow allowing datastore selection, path browsing, worker tweak, and version display.
+    """Main interactive flow allowing datastore selection, path browsing, thread tweak, and version display.
 
     Returns (datastore_name, searchpath) or None if user aborted.
-    Updates args.workers in-place when changed.
+    Updates args.threads in-place when changed.
     """
     header = "PBS_Chunk_Checker - Interactive Mode"
     datastore_name: Optional[str] = None
@@ -1266,13 +1269,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         dest="searchpath",
         help="Object path inside the datastore (e.g. /ns/MyNamespace or /ns/MyNamespace/vm/100).",
     )
-    default_workers = min(32, (os.cpu_count() or 4) * 2)
+    default_threads = min(32, (os.cpu_count() or 4) * 2)
+    parser.add_argument(
+        "--threads",
+        dest="threads",
+        type=int,
+        default=default_threads,
+        help="Number of parallel threads to use when parsing indexes and statting chunk files. "
+             "Defaults to 2× available CPUs (capped at 32).",
+    )
+    # Backward compatibility alias
     parser.add_argument(
         "--workers",
+        dest="threads",
         type=int,
-        default=default_workers,
-        help="Number of parallel workers to use when parsing indexes and statting chunk files. "
-             "Defaults to 2× available CPUs (capped at 32).",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--no-emoji",
@@ -1286,11 +1297,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     ensure_required_tools()
 
-    if args.workers <= 0:
+    if args.threads <= 0:
         sys.stderr.write(
-            f"{ICONS['error']} Error: invalid worker count ({args.workers}). Using default value {default_workers}.\n"
+            f"{ICONS['error']} Error: invalid thread count ({args.threads}). Using default value {default_threads}.\n"
         )
-        args.workers = default_workers
+        args.threads = default_threads
 
     # ----- Interactive mode detection -----
     interactive = not args.datastore and not args.searchpath
@@ -1343,6 +1354,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"{ICONS['folder']} Path to datastore: {datastore_root}")
     print(f"{ICONS['chunk']} Chunk path: {chunks_root}")
     print(f"{ICONS['folder']} Search path: {search_path}")
+    print(f"{ICONS['threads']} Threads: {args.threads}")
 
     if not search_path_obj.is_dir():
         sys.stderr.write(f"{ICONS['error']} Error: folder does not exist → {search_path}\n")
@@ -1360,7 +1372,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # ----- Extract referenced chunks from index files -----
     digest_counter = Counter()
     processed = 0
-    with futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+    with futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
         futs = {pool.submit(extract_chunks_from_file, f): f for f in index_files}
         for fut in futures.as_completed(futs):
             try:
@@ -1400,7 +1412,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         missing = (size == 0 and not path.exists())
         return size, missing
 
-    with futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+    with futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
         futs2 = {pool.submit(_stat_one, d): d for d in digest_counter.keys()}
         for fut in futures.as_completed(futs2):
             try:
@@ -1439,17 +1451,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     unique_percent = (total_unique / chunk_counter_total * 100) if chunk_counter_total else 0.0
     duplicate_percent = 100.0 - unique_percent if chunk_counter_total else 0.0
     print(f"{ICONS['puzzle']} Chunk usage summary:")
+    # Align summary values in table-like columns
+    label_unique = "Unique chunks"
+    label_dupe = "Duplicate refs"
+    label_total = "Total references"
+    count_unique = f"{total_unique}"
+    count_dupe = f"{duplicate_count}"
+    count_total = f"{chunk_counter_total}"
+    perc_unique = f"{unique_percent:.2f}%"
+    perc_dupe = f"{duplicate_percent:.2f}%"
+    perc_total = ""  # no percentage for total references
+    size_unique = human_readable_size(unique_bytes)
+    size_dupe = human_readable_size(duplicate_bytes)
+    size_total = human_readable_size(unique_bytes + duplicate_bytes)
+
+    w_label = max(len(label_unique), len(label_dupe), len(label_total))
+    w_count = max(len(count_unique), len(count_dupe), len(count_total))
+    w_perc = max(len(perc_unique), len(perc_dupe), len(perc_total))
+    w_size = max(len(size_unique), len(size_dupe), len(size_total))
+
     print(
-        f"  Unique chunks    : {total_unique} ({unique_percent:.2f}%) "
-        f"| {human_readable_size(unique_bytes)}"
+        f"  {label_unique.ljust(w_label)} : {count_unique.rjust(w_count)}  {perc_unique.rjust(w_perc)} | {size_unique.rjust(w_size)}"
     )
     print(
-        f"  Duplicate refs   : {duplicate_count} ({duplicate_percent:.2f}%) "
-        f"| {human_readable_size(duplicate_bytes)}"
+        f"  {label_dupe.ljust(w_label)} : {count_dupe.rjust(w_count)}  {perc_dupe.rjust(w_perc)} | {size_dupe.rjust(w_size)}"
     )
     print(
-        f"  Total references : {chunk_counter_total} "
-        f"({human_readable_size(unique_bytes + duplicate_bytes)})"
+        f"  {label_total.ljust(w_label)} : {count_total.rjust(w_count)}  {perc_total.rjust(w_perc)} | {size_total.rjust(w_size)}"
     )
 
     if missing_count:
