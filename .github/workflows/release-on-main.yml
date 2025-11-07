@@ -58,7 +58,19 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.version }}
           name: "PBS_Chunk_Checker v${{ steps.version.outputs.version }}"
+          body: |
+            🚀 Automated release from main branch  
+            Version: v${{ steps.version.outputs.version }}  
+            Commit: ${{ github.sha }}
+          files: |
+            PBS_Chunk_Checker.py
+            release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.zip
+            release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
           body: |
             🚀 Automated release from main branch  
             Version: v${{ steps.version.outputs.version }}
