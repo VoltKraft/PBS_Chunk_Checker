@@ -22,6 +22,10 @@ jobs:
         id: version
         run: |
           VERSION=$(grep '__version__' PBS_Chunk_Checker.py | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$VERSION" ]; then
+            echo "❌ Version not found in PBS_Chunk_Checker.py"
+            exit 1
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Detected version: $VERSION"
 
@@ -31,23 +35,29 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.version }}
           EXISTING=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/releases \
-            | jq -r ".[] | select(.tag_name == \"v${VERSION}\") | .id")
+            https://api.github.com/repos/${{ github.repository }}/releases/tags/v${VERSION} \
+            | jq -r '.id // empty')
 
           if [ -n "$EXISTING" ]; then
-            echo "Release for version ${VERSION} already exists. Skipping."
             echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Release for v${VERSION} already exists."
           else
-            echo "No existing release found for version ${VERSION}."
             echo "exists=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No release found for v${VERSION}, continuing..."
           fi
 
       # 4️⃣ Stop if release already exists
       - name: Stop if release already exists
         if: steps.check_release.outputs.exists == 'true'
-        run: echo "✅ Release already exists. Job skipped." && exit 0
+        run: echo "Release already exists, skipping." && exit 0
 
-      # 5️⃣ Create GitHub Release (only attach script)
+      # 5️⃣ (Optional) Rename file to include version for clarity
+      - name: Copy versioned script
+        if: steps.check_release.outputs.exists == 'false'
+        run: |
+          cp PBS_Chunk_Checker.py PBS_Chunk_Checker_v${{ steps.version.outputs.version }}.py
+
+      # 6️⃣ Create GitHub Release
       - name: Create GitHub Release
         if: steps.check_release.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
@@ -60,4 +70,4 @@ jobs:
             🚀 Automated release from main branch  
             Version: v${{ steps.version.outputs.version }}  
             Commit: ${{ github.sha }}
-          files: PBS_Chunk_Checker.py
+          files: PBS_Chunk_Checker_v${{ steps.version.outputs.version }}.py
