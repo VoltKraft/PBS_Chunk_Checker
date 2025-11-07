@@ -21,7 +21,7 @@ jobs:
       - name: Read version from PBS_Chunk_Checker.py
         id: version
         run: |
-          VERSION=$(grep -Po '(?<=__version__\s*=\s*")[^"]+' PBS_Chunk_Checker.py)
+          VERSION=$(grep '__version__' PBS_Chunk_Checker.py | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Detected version: $VERSION"
 
