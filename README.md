@@ -65,19 +65,33 @@ Run without parameters to open a menu for selecting the datastore and the search
 In interactive mode you can:
 - Select an existing datastore from the list or enter one manually
 - Navigate the datastore directory structure and choose the search path (or enter it manually)
- - Adjust the number of workers used for processing
- - Show the script version directly from the menu
+- Open the Options overlay (press `o`) to adjust workers (and future settings like emoji output)
 
 Interactive controls (TUI):
 - Use Up/Down arrows (or j/k) to move
 - Press Space or Enter to select/confirm
 - Press m to enter a value/path manually
+- Press o to open Options (workers)
+- Press v to show current version
 - Press q (or Esc) to abort
+- Inside the Options overlay, press Space to toggle items (Emoji output shows ✔/✘)
 
 Notes:
 - The TUI uses the built-in Python curses module; no extra packages are required.
 - If your terminal doesn’t support curses, the script falls back to the numeric menu.
 - Set `PBS_CC_NO_CURSES=1` to force the numeric menu.
+
+### What “workers” do
+
+Workers are the number of parallel threads the script uses to:
+- Parse PBS index files (`*.fidx`, `*.didx`)
+- Stat chunk files under the `.chunks` directory
+
+More workers can significantly speed up evaluations on fast storage and when many files are involved. However, setting the value too high can cause disk thrashing or extra CPU load, which might reduce overall throughput on slower disks.
+
+Defaults: `2 × CPU cores`, capped at `32`.
+
+You can change the value in interactive mode by pressing `o` (Options) or by passing `--workers N` on the command line. Within the Options overlay you can also toggle emoji output (equivalent to `--no-emoji`) using the Space key.
 
 ### Portable execution (no local file)
 Stream the script from GitHub and execute it immediately.
