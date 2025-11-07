@@ -1,0 +1,72 @@
+name: Create Release from main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write  # needed to create releases
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2️⃣ Extract version from PBS_Chunk_Checker.py
+      - name: Read version from PBS_Chunk_Checker.py
+        id: version
+        run: |
+          VERSION=$(grep -Po '(?<=__version__\s*=\s*")[^"]+' PBS_Chunk_Checker.py)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
+      # 3️⃣ Check if release for this version already exists
+      - name: Check if release exists
+        id: check_release
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          EXISTING=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases \
+            | jq -r ".[] | select(.name == \"PBS_Chunk_Checker v${VERSION}\") | .id")
+
+          if [ -n "$EXISTING" ]; then
+            echo "Release for version ${VERSION} already exists. Skipping."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "No existing release found for version ${VERSION}."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 4️⃣ Stop if release already exists
+      - name: Stop if release already exists
+        if: steps.check_release.outputs.exists == 'true'
+        run: echo "✅ Release already exists. Job skipped." && exit 0
+
+      # 5️⃣ Create ZIP and TAR.GZ archives of the repo
+      - name: Create release archives
+        run: |
+          mkdir -p release
+          zip -r release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.zip . -x ".git/*" ".github/*"
+          tar --exclude='.git' --exclude='.github' -czf release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.tar.gz .
+
+      # 6️⃣ Create GitHub Release (without tag)
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "PBS_Chunk_Checker v${{ steps.version.outputs.version }}"
+          body: |
+            🚀 Automated release from main branch  
+            Version: v${{ steps.version.outputs.version }}
+            Commits since last release:
+            ${{ github.event.head_commit.message }}
+          files: |
+            PBS_Chunk_Checker.py
+            release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.zip
+            release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
