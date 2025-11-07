@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict
 from collections import Counter
 
-__version__ = "2.4.2"
+__version__ = "2.4.3"
 
 COMMAND_PATHS: Dict[str, str] = {}
 DEFAULT_PATH_SEGMENTS = [
