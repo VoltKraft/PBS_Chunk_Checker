@@ -7,7 +7,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.4.3 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.5.1 (`./PBS_Chunk_Checker.py --version`)
 
 ---
 
@@ -43,7 +43,7 @@ Clone or download the repository, then run the script with Python.
 
 Syntax (script mode):
 ```bash
-./PBS_Chunk_Checker.py --datastore <DATASTORE_NAME> --searchpath <SEARCH_PATH> [--workers N]
+./PBS_Chunk_Checker.py --datastore <DATASTORE_NAME> --searchpath <SEARCH_PATH> [--threads N]
 ```
 
 Examples:
@@ -65,6 +65,33 @@ Run without parameters to open a menu for selecting the datastore and the search
 In interactive mode you can:
 - Select an existing datastore from the list or enter one manually
 - Navigate the datastore directory structure and choose the search path (or enter it manually)
+- Open the Options overlay (press `o`) to adjust threads and toggle emoji output
+
+Interactive controls (TUI):
+- Use Up/Down arrows (or j/k) to move
+- Press Space or Enter to select/confirm
+- Press m to enter a value/path manually
+- Press o to open Options (threads)
+- Press v to show current version
+- Press q (or Esc) to abort
+- Inside the Options overlay, press Space to toggle items (Emoji output shows ✔/✘)
+
+Notes:
+- The TUI uses the built-in Python curses module; no extra packages are required.
+- If your terminal doesn’t support curses, the script falls back to the numeric menu.
+- Set `PBS_CC_NO_CURSES=1` to force the numeric menu.
+
+### What “threads” do
+
+Threads are the number of parallel operations the script uses to:
+- Parse PBS index files (`*.fidx`, `*.didx`)
+- Stat chunk files under the `.chunks` directory
+
+More threads can significantly speed up evaluations on fast storage and when many files are involved. However, setting the value too high can cause disk thrashing or extra CPU load, which might reduce overall throughput on slower disks.
+
+Defaults: `2 × CPU cores`, capped at `32`.
+
+You can change the value in interactive mode by pressing `o` (Options) or by passing `--threads N` on the command line. Within the Options overlay you can also toggle emoji output (equivalent to `--no-emoji`) using the Space key.
 
 ### Portable execution (no local file)
 Stream the script from GitHub and execute it immediately.
@@ -92,7 +119,7 @@ Notes:
 |--------|-------------|-------------|---------|
 | `--datastore` | Required (script mode) | PBS datastore name that contains the object you want to analyse | — |
 | `--searchpath` | Required (script mode) | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
-| `--workers` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
+| `--threads` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
 | `--no-emoji` | Optional | Replace emoji icons in CLI output with ASCII labels | Emoji output |
 | `--version` | Optional | Show the script version and exit | — |
 
@@ -104,18 +131,19 @@ Notes:
 📁 Path to datastore: /mnt/datastore/MyDatastore
 📦 Chunk path: /mnt/datastore/MyDatastore/.chunks
 📁 Search path: /mnt/datastore/MyDatastore/ns/MyNamespace
+🧵 Threads: 8
 
 💾 Saving all used chunks
-📄 Index 75/75 | ⏱️ 02m 15s
+📄 Index 75/75 (100.00%) | ⏱️ 02m 15s
 ➕ Summing up chunks
-📦 Chunk 12450/12450 | 🧮 Size so far: 1.23TiB | ⏱️ 12m 09s
+📦 Chunk 12450/12450 (100.00%) | 🧮 Size so far: 1.23TiB | ⏱️ 12m 09s
 
 🧮 Total size: 1356782934123 Bytes (1.23TiB)
 ⏱️ Evaluation duration: 12m 10s
 🧩 Chunk usage summary:
-  Unique chunks    : 8505 (9.59%) | 12.2GiB
-  Duplicate refs   : 80186 (90.41%) | 186.2GiB
-  Total references : 88692 (198.4GiB)
+  Unique chunks     :  8505    9.59% |   12.2GiB
+  Duplicate refs    : 80186   90.41% |  186.2GiB
+  Total references  : 88692          |  198.4GiB
 ```
 
 ---
@@ -125,8 +153,11 @@ Notes:
 - Clear console on start for a clean view.
 - Path header order: datastore path → chunk path → search path.
 - Live runtime timer (⏱️) on both index and chunk progress lines.
+- Thread count prints with a thread icon (ASCII fallback: [THREADS]).
+- Progress lines include a completion percentage for Index and Chunk phases.
 - Total size prints the actual on-disk size of unique chunks referenced by the selected object.
 - Chunk usage summary:
+  - Values are aligned in columns for readability (label, count, percent, size).
   - Unique chunks: number of distinct chunk digests, share of all references, and their total size.
   - Duplicate refs: additional references to already-counted chunks and their logical size.
   - Total references: overall reference count and the logical size when counting duplicates.
