@@ -13,11 +13,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout the repository
+      #  Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Extract version from PBS_Chunk_Checker.py
+      #  Extract version from PBS_Chunk_Checker.py
       - name: Read version from PBS_Chunk_Checker.py
         id: version
         run: |
@@ -25,7 +25,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Detected version: $VERSION"
 
-      # 3️⃣ Check if release for this version already exists
+      #  Check if release for this version already exists
       - name: Check if release exists
         id: check_release
         run: |
@@ -42,19 +42,12 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      # 4️⃣ Stop if release already exists
+      #  Stop if release already exists
       - name: Stop if release already exists
         if: steps.check_release.outputs.exists == 'true'
         run: echo "✅ Release already exists. Job skipped." && exit 0
 
-      # 5️⃣ Create ZIP and TAR.GZ archives of the repo
-      - name: Create release archives
-        run: |
-          mkdir -p release
-          zip -r release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.zip . -x ".git/*" ".github/*"
-          tar --exclude='.git' --exclude='.github' -czf release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.tar.gz .
-
-      # 6️⃣ Create GitHub Release (tag required by API)
+      #  Create GitHub Release (tag required by API)
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         env:
@@ -68,5 +61,3 @@ jobs:
             Commit: ${{ github.sha }}
           files: |
             PBS_Chunk_Checker.py
-            release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.zip
-            release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.tar.gz
