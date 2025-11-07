@@ -65,7 +65,7 @@ Run without parameters to open a menu for selecting the datastore and the search
 In interactive mode you can:
 - Select an existing datastore from the list or enter one manually
 - Navigate the datastore directory structure and choose the search path (or enter it manually)
-- Open the Options overlay (press `o`) to adjust threads (and future settings like emoji output)
+- Open the Options overlay (press `o`) to adjust threads and toggle emoji output
 
 Interactive controls (TUI):
 - Use Up/Down arrows (or j/k) to move
