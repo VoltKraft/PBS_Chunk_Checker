@@ -32,7 +32,7 @@ jobs:
           VERSION=${{ steps.version.outputs.version }}
           EXISTING=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/releases \
-            | jq -r ".[] | select(.name == \"PBS_Chunk_Checker v${VERSION}\") | .id")
+            | jq -r ".[] | select(.tag_name == \"v${VERSION}\") | .id")
 
           if [ -n "$EXISTING" ]; then
             echo "Release for version ${VERSION} already exists. Skipping."
@@ -54,9 +54,11 @@ jobs:
           zip -r release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.zip . -x ".git/*" ".github/*"
           tar --exclude='.git' --exclude='.github' -czf release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.tar.gz .
 
-      # 6️⃣ Create GitHub Release (without tag)
+      # 6️⃣ Create GitHub Release (tag required by API)
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: "PBS_Chunk_Checker v${{ steps.version.outputs.version }}"
@@ -68,17 +70,3 @@ jobs:
             PBS_Chunk_Checker.py
             release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.zip
             release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-          body: |
-            🚀 Automated release from main branch  
-            Version: v${{ steps.version.outputs.version }}
-            Commits since last release:
-            ${{ github.event.head_commit.message }}
-          files: |
-            PBS_Chunk_Checker.py
-            release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.zip
-            release/PBS_Chunk_Checker-${{ steps.version.outputs.version }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
