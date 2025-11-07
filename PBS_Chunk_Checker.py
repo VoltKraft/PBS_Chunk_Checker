@@ -13,8 +13,12 @@ import time
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict
 from collections import Counter
+try:
+    import curses  # type: ignore
+except Exception:
+    curses = None  # type: ignore
 
-__version__ = "2.4.3"
+__version__ = "2.5.0"
 
 COMMAND_PATHS: Dict[str, str] = {}
 DEFAULT_PATH_SEGMENTS = [
@@ -320,13 +324,99 @@ def resolve_search_path(datastore_path: str, searchpath: str) -> Path:
 # Interactive helpers (menu-driven mode)
 # =============================================================================
 
-def _prompt_select(prompt: str, options: List[str], allow_manual: bool = True) -> Optional[str]:
-    """Simple numeric selection menu. Returns the chosen string or None if aborted.
+_CURSES_SENTINEL_MANUAL = "__CURSES_MANUAL__"
 
-    - Shows options enumerated 1..N
-    - 'm' to enter manually (if allowed)
-    - 'q' to abort
-    """
+def _want_curses_ui() -> bool:
+    if os.environ.get("PBS_CC_NO_CURSES") == "1":
+        return False
+    if curses is None:
+        return False
+    try:
+        return os.isatty(0) and os.isatty(1) and (os.environ.get("TERM") not in (None, "", "dumb"))
+    except Exception:
+        return False
+
+
+def _curses_select_menu(prompt: str, options: List[str], allow_manual: bool) -> Optional[str]:
+    def _draw(stdscr):
+        curses.curs_set(0)
+        stdscr.keypad(True)
+        idx = 0
+        top = 0
+        while True:
+            stdscr.erase()
+            h, w = stdscr.getmaxyx()
+            y = 0
+            for line in prompt.splitlines():
+                try:
+                    stdscr.addstr(y, 0, line[: max(1, w - 1)])
+                except Exception:
+                    pass
+                y += 1
+            view_h = max(1, h - (y + 1))
+            if idx < top:
+                top = idx
+            if idx >= top + view_h:
+                top = max(0, idx - view_h + 1)
+            end = min(len(options), top + view_h)
+            for i in range(top, end):
+                label = options[i]
+                prefix = "> " if i == idx else "  "
+                text = (prefix + label)[: max(1, w - 1)]
+                try:
+                    stdscr.addstr(y + (i - top), 0, text, curses.A_REVERSE if i == idx else 0)
+                except Exception:
+                    pass
+            help_line = (
+                "↑/↓ move  Space/Enter select  m manual  q quit"
+                if allow_manual
+                else "↑/↓ move  Space/Enter select  q quit"
+            )
+            try:
+                stdscr.addstr(h - 1, 0, help_line[: max(1, w - 1)])
+            except Exception:
+                pass
+            stdscr.refresh()
+            ch = stdscr.getch()
+            if ch in (curses.KEY_UP, ord('k')):
+                if idx > 0:
+                    idx -= 1
+            elif ch in (curses.KEY_DOWN, ord('j')):
+                if idx < len(options) - 1:
+                    idx += 1
+            elif ch in (curses.KEY_NPAGE,):
+                step = max(1, view_h - 1)
+                idx = min(len(options) - 1, idx + step)
+            elif ch in (curses.KEY_PPAGE,):
+                step = max(1, view_h - 1)
+                idx = max(0, idx - step)
+            elif ch in (curses.KEY_HOME,):
+                idx = 0
+            elif ch in (curses.KEY_END,):
+                idx = len(options) - 1
+            elif ch in (10, 13, ord(' ')):
+                return options[idx]
+            elif allow_manual and ch in (ord('m'), ord('M')):
+                return _CURSES_SENTINEL_MANUAL
+            elif ch in (ord('q'), ord('Q'), 27):
+                return None
+    try:
+        return curses.wrapper(_draw)  # type: ignore[attr-defined]
+    except Exception:
+        return None
+
+
+def _prompt_select(prompt: str, options: List[str], allow_manual: bool = True) -> Optional[str]:
+    """Selection menu using curses (if available) with arrow keys + space. Falls back to numeric input."""
+    if _want_curses_ui():
+        result = _curses_select_menu(prompt, options, allow_manual)
+        if result == _CURSES_SENTINEL_MANUAL and allow_manual:
+            clear_console()
+            manual = input("Enter value: ").strip()
+            return manual or None
+        return result
+
+    # Fallback: simple numeric menu
     feedback = ""
     while True:
         clear_console()
@@ -358,6 +448,124 @@ def _prompt_select(prompt: str, options: List[str], allow_manual: bool = True) -
         feedback = "Invalid input, please try again."
 
 
+def _curses_choose_directory(base_path: str, feedback: str = "") -> Optional[str]:
+    base = Path(base_path)
+    if not base.is_dir():
+        return None
+
+    def _draw(stdscr):
+        curses.curs_set(0)
+        stdscr.keypad(True)
+        current = base
+        idx = 0
+        top = 0
+        local_feedback = feedback
+        while True:
+            # build entries
+            try:
+                subs = []
+                for p in sorted([p for p in current.iterdir() if p.is_dir()], key=lambda x: x.name.lower()):
+                    if p.name.startswith('.'):
+                        continue
+                    if p.name == ".chunks":
+                        continue
+                    subs.append(p)
+            except PermissionError:
+                subs = []
+
+            entries: List[Tuple[str, str]] = []  # (label, action)
+            entries.append(("Use current path", "use"))
+            if current != base:
+                entries.append((".. (up one level)", "up"))
+            for p in subs:
+                entries.append((p.name + "/", f"enter:{p.name}"))
+
+            stdscr.erase()
+            h, w = stdscr.getmaxyx()
+            rel = "/" if current == base else "/" + str(current.relative_to(base))
+            header = f"{ICONS.get('folder_current','')} Current path: {rel}"
+            y = 0
+            try:
+                stdscr.addstr(y, 0, header[: max(1, w - 1)])
+            except Exception:
+                pass
+            y += 1
+            if local_feedback:
+                try:
+                    stdscr.addstr(y, 0, local_feedback[: max(1, w - 1)])
+                except Exception:
+                    pass
+                y += 1
+
+            view_h = max(1, h - (y + 1))
+            if idx < top:
+                top = idx
+            if idx >= top + view_h:
+                top = max(0, idx - view_h + 1)
+            end = min(len(entries), top + view_h)
+            for i in range(top, end):
+                label = entries[i][0]
+                prefix = "> " if i == idx else "  "
+                text = (prefix + label)[: max(1, w - 1)]
+                try:
+                    stdscr.addstr(y + (i - top), 0, text, curses.A_REVERSE if i == idx else 0)
+                except Exception:
+                    pass
+            help_line = "↑/↓ move  Space/Enter open/select  m manual  q quit"
+            try:
+                stdscr.addstr(h - 1, 0, help_line[: max(1, w - 1)])
+            except Exception:
+                pass
+            stdscr.refresh()
+            ch = stdscr.getch()
+            if ch in (curses.KEY_UP, ord('k')):
+                if idx > 0:
+                    idx -= 1
+            elif ch in (curses.KEY_DOWN, ord('j')):
+                if idx < len(entries) - 1:
+                    idx += 1
+            elif ch in (curses.KEY_NPAGE,):
+                step = max(1, view_h - 1)
+                idx = min(len(entries) - 1, idx + step)
+            elif ch in (curses.KEY_PPAGE,):
+                step = max(1, view_h - 1)
+                idx = max(0, idx - step)
+            elif ch in (curses.KEY_HOME,):
+                idx = 0
+            elif ch in (curses.KEY_END,):
+                idx = len(entries) - 1
+            elif ch in (10, 13, ord(' ')):
+                label, action = entries[idx]
+                if action == "use":
+                    return str(current)
+                if action == "up":
+                    if current != base:
+                        current = current.parent
+                        idx = 0
+                        top = 0
+                        local_feedback = ""
+                    continue
+                if action.startswith("enter:"):
+                    name = action.split(":", 1)[1]
+                    nxt = current / name
+                    if nxt.is_dir():
+                        current = nxt
+                        idx = 0
+                        top = 0
+                        local_feedback = ""
+                    else:
+                        local_feedback = "Path no longer exists."
+                    continue
+            elif ch in (ord('m'), ord('M')):
+                return _CURSES_SENTINEL_MANUAL
+            elif ch in (ord('q'), ord('Q'), 27):
+                return None
+    try:
+        return curses.wrapper(_draw)  # type: ignore[attr-defined]
+    except Exception:
+        return None
+
+
 def _choose_directory(base_path: str) -> Optional[str]:
     """Interactive directory browser inside base_path.
 
@@ -367,6 +575,25 @@ def _choose_directory(base_path: str) -> Optional[str]:
     if not base.is_dir():
         return None
 
+    if _want_curses_ui():
+        feedback = ""
+        while True:
+            res = _curses_choose_directory(base_path, feedback)
+            if res == _CURSES_SENTINEL_MANUAL:
+                clear_console()
+                manual = input("Enter relative path from datastore (e.g. /ns/MyNamespace): ").strip()
+                if manual:
+                    manual = manual.lstrip("/")
+                    abs_path = base / manual
+                    if abs_path.is_dir():
+                        return str(abs_path)
+                    feedback = "Path does not exist. Please try again."
+                else:
+                    feedback = "No path entered. Please try again."
+                continue
+            return res
+
+    # Fallback: simple text browser
     current = base
     feedback = ""
     while True:
@@ -538,6 +765,132 @@ def _progress_line(prefix: str, i: int, total: int, extra: str = "") -> None:
 
 
 # =============================================================================
+# Interactive main menu flow
+# =============================================================================
+
+def _interactive_menu(args) -> Optional[Tuple[str, str]]:
+    """Main interactive flow allowing datastore selection, path browsing, worker tweak, and version display.
+
+    Returns (datastore_name, searchpath) or None if user aborted.
+    Updates args.workers in-place when changed.
+    """
+    header = "PBS_Chunk_Checker - Interactive Mode"
+    datastore_name: Optional[str] = None
+    search_rel: Optional[str] = None
+
+    while True:
+        entries: List[str] = []
+        ds_label = datastore_name or "not set"
+        entries.append(f"Select datastore [{ds_label}]")
+        if datastore_name:
+            sp_label = search_rel or "/"
+            entries.append(f"Choose search path [{sp_label}]")
+        entries.append(f"Set workers ({args.workers})")
+        entries.append("Show version")
+        if datastore_name and search_rel:
+            entries.append("Start")
+        entries.append("Quit")
+
+        choice = _prompt_select(f"{header}\n\nSelect an option:", entries, allow_manual=False)
+        if choice is None:
+            return None
+
+        if choice.startswith("Select datastore"):
+            stores = list_datastores()
+            if stores:
+                ds = _prompt_select(f"{header}\n\nSelect datastore:", stores, allow_manual=True)
+                if ds is None:
+                    continue
+                if not DATASTORE_PATTERN.fullmatch(ds):
+                    clear_console()
+                    print(f"{ICONS['error']} Error: invalid datastore name '{ds}'.")
+                    input("Press Enter to continue...")
+                    continue
+                try:
+                    # Validate existence right away to enable path selection later
+                    get_datastore_path(ds)
+                except SystemExit:
+                    continue
+                except FileNotFoundError:
+                    clear_console()
+                    print(f"{ICONS['error']} Error: required command 'proxmox-backup-manager' not available.")
+                    input("Press Enter to continue...")
+                    continue
+                datastore_name = ds
+                search_rel = None  # reset path after datastore change
+            else:
+                clear_console()
+                print(f"{header}\n")
+                ds = input("Enter datastore name: ").strip()
+                if not ds:
+                    continue
+                if not DATASTORE_PATTERN.fullmatch(ds):
+                    clear_console()
+                    print(f"{ICONS['error']} Error: invalid datastore name '{ds}'.")
+                    input("Press Enter to continue...")
+                    continue
+                try:
+                    get_datastore_path(ds)
+                except SystemExit:
+                    continue
+                except FileNotFoundError:
+                    clear_console()
+                    print(f"{ICONS['error']} Error: required command 'proxmox-backup-manager' not available.")
+                    input("Press Enter to continue...")
+                    continue
+                datastore_name = ds
+                search_rel = None
+
+        elif choice.startswith("Choose search path"):
+            if not datastore_name:
+                continue
+            try:
+                datastore_path = get_datastore_path(datastore_name)
+            except SystemExit:
+                continue
+            except FileNotFoundError:
+                clear_console()
+                print(f"{ICONS['error']} Error: required command 'proxmox-backup-manager' not available.")
+                input("Press Enter to continue...")
+                continue
+            abs_selected = _choose_directory(datastore_path)
+            if abs_selected is None:
+                continue
+            rel = "/" + str(Path(abs_selected).relative_to(datastore_path)) if abs_selected != datastore_path else "/"
+            search_rel = rel
+
+        elif choice.startswith("Set workers"):
+            clear_console()
+            print(f"{header}\n")
+            print(f"Current workers: {args.workers}")
+            typed = input("Enter new worker count (1-32): ").strip()
+            if not typed:
+                continue
+            if not typed.isdigit():
+                clear_console()
+                print(f"{ICONS['error']} Error: please enter a positive integer.")
+                input("Press Enter to continue...")
+                continue
+            val = int(typed)
+            if val <= 0 or val > 32:
+                clear_console()
+                print(f"{ICONS['error']} Error: workers must be between 1 and 32.")
+                input("Press Enter to continue...")
+                continue
+            args.workers = val
+
+        elif choice == "Show version":
+            clear_console()
+            print(f"PBS_Chunk_Checker version: {__version__}")
+            input("Press Enter to continue...")
+
+        elif choice == "Start":
+            if datastore_name and search_rel:
+                return datastore_name, search_rel
+
+        elif choice == "Quit":
+            return None
+
 # Main routine: CLI parsing, chunk processing and reporting
 # =============================================================================
 
@@ -597,57 +950,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("Either provide both --datastore and --searchpath, or none for interactive mode.")
 
     if interactive:
-        header = "PBS Chunk Checker - Interactive Mode"
-        # 1) Select or enter datastore
-        stores = list_datastores()
-        if stores:
-            ds = _prompt_select(f"{header}\n\nSelect datastore:", stores, allow_manual=True)
-            if ds is None:
-                print("Aborted.")
-                return 130
-            args.datastore = ds
-        else:
-            # Fallback: ask for manual input
-            clear_console()
-            print(f"{header}\n")
-            ds = input("Enter datastore name: ").strip()
-            if not ds:
-                print("No datastore provided. Aborting.")
-                return 130
-            args.datastore = ds
-
-        if not DATASTORE_PATTERN.fullmatch(args.datastore):
-            sys.stderr.write(
-                f"{ICONS['error']} Error: invalid datastore name '{args.datastore}'. "
-                "Only letters, digits, '.', '_', and '-' are allowed.\n"
-            )
-            return 1
-
-        # Resolve datastore path
-        try:
-            datastore_path = get_datastore_path(args.datastore)
-        except SystemExit:
-            return 1
-        except FileNotFoundError:
-            sys.stderr.write(
-                f"{ICONS['error']} Error: required command 'proxmox-backup-manager' not available.\n"
-            )
-            return 1
-
-        if not Path(datastore_path).is_dir():
-            sys.stderr.write(
-                f"{ICONS['error']} Error: datastore path is not a directory → {datastore_path}\n"
-            )
-            return 1
-
-        # 2) Choose search path via browser or manual entry
-        abs_selected = _choose_directory(datastore_path)
-        if abs_selected is None:
+        res = _interactive_menu(args)
+        if res is None:
             print("Aborted.")
             return 130
-        # Convert to datastore-relative path (prefix with '/')
-        rel = "/" + str(Path(abs_selected).relative_to(datastore_path)) if abs_selected != datastore_path else "/"
-        args.searchpath = rel
+        args.datastore, args.searchpath = res
         clear_console()
 
     elif not DATASTORE_PATTERN.fullmatch(args.datastore or ""):

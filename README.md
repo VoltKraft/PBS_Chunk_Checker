@@ -7,7 +7,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.4.3 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.5.0 (`./PBS_Chunk_Checker.py --version`)
 
 ---
 
@@ -65,6 +65,19 @@ Run without parameters to open a menu for selecting the datastore and the search
 In interactive mode you can:
 - Select an existing datastore from the list or enter one manually
 - Navigate the datastore directory structure and choose the search path (or enter it manually)
+ - Adjust the number of workers used for processing
+ - Show the script version directly from the menu
+
+Interactive controls (TUI):
+- Use Up/Down arrows (or j/k) to move
+- Press Space or Enter to select/confirm
+- Press m to enter a value/path manually
+- Press q (or Esc) to abort
+
+Notes:
+- The TUI uses the built-in Python curses module; no extra packages are required.
+- If your terminal doesn’t support curses, the script falls back to the numeric menu.
+- Set `PBS_CC_NO_CURSES=1` to force the numeric menu.
 
 ### Portable execution (no local file)
 Stream the script from GitHub and execute it immediately.
