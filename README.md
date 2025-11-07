@@ -7,7 +7,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.5.0 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.5.1 (`./PBS_Chunk_Checker.py --version`)
 
 ---
 

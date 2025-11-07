@@ -18,7 +18,7 @@ try:
 except Exception:
     curses = None  # type: ignore
 
-__version__ = "2.5.0"
+__version__ = "2.5.1"
 
 COMMAND_PATHS: Dict[str, str] = {}
 DEFAULT_PATH_SEGMENTS = [
