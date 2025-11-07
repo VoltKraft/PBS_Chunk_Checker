@@ -316,7 +316,6 @@ def resolve_search_path(datastore_path: str, searchpath: str) -> Path:
         raise ValueError("Search path escapes datastore root.") from exc
     return candidate
 
-
 # =============================================================================
 # Interactive helpers (menu-driven mode)
 # =============================================================================
