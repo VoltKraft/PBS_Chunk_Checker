@@ -1,5 +1,25 @@
 #!/usr/bin/env python3
 
+"""
+PBS_Chunk_Checker — Sum the actual on-disk size of unique PBS chunks
+for a selected datastore object (namespace/VM/CT).
+
+Highlights:
+- Uses PBS CLI tools to resolve datastores and inspect index files (*.fidx/*.didx)
+- Deduplicates referenced chunk digests and sums unique chunk sizes
+- Offers an interactive TUI (curses) with a simple text fallback
+
+This module is intentionally self-contained and depends only on Python's
+standard library plus the Proxmox Backup Server CLI tools installed on the host.
+
+References:
+- Author: Jan Paulzen (VoltKraft)
+- README: README.md
+- Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
+"""
+
+__version__ = "2.5.2"
+
 import argparse
 import concurrent.futures as futures
 import json
@@ -18,7 +38,6 @@ try:
 except Exception:
     curses = None  # type: ignore
 
-__version__ = "2.5.1"
 
 COMMAND_PATHS: Dict[str, str] = {}
 DEFAULT_PATH_SEGMENTS = [
@@ -47,6 +66,7 @@ DATASTORE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def _format_command(cmd: object) -> str:
+    """Return a shell-like string for a command sequence or object."""
     if isinstance(cmd, (list, tuple)):
         return " ".join(str(part) for part in cmd)
     return str(cmd)
@@ -342,6 +362,7 @@ _UI_OPTIONS_HANDLER: Optional[Callable[[Optional[object]], None]] = None
 _UI_VERSION_HANDLER: Optional[Callable[[Optional[object]], None]] = None
 
 def _want_curses_ui() -> bool:
+    """Return True if a curses UI is likely usable on this terminal."""
     if os.environ.get("PBS_CC_NO_CURSES") == "1":
         return False
     if curses is None:
@@ -356,12 +377,14 @@ def _set_ui_handlers(
     options_handler: Optional[Callable[[Optional[object]], None]] = None,
     version_handler: Optional[Callable[[Optional[object]], None]] = None,
 ) -> None:
+    """Register callbacks used by the interactive UI overlays (options/version)."""
     global _UI_OPTIONS_HANDLER, _UI_VERSION_HANDLER
     _UI_OPTIONS_HANDLER = options_handler
     _UI_VERSION_HANDLER = version_handler
 
 
 def _invoke_options_handler(stdscr: Optional[object] = None) -> None:
+    """Invoke the registered options handler if present; gently flash otherwise."""
     handler = _UI_OPTIONS_HANDLER
     if handler is not None:
         handler(stdscr)
@@ -373,6 +396,7 @@ def _invoke_options_handler(stdscr: Optional[object] = None) -> None:
 
 
 def _invoke_version_handler(stdscr: Optional[object] = None) -> None:
+    """Invoke the registered version handler if present; gently flash otherwise."""
     handler = _UI_VERSION_HANDLER
     if handler is not None:
         handler(stdscr)
@@ -384,6 +408,9 @@ def _invoke_version_handler(stdscr: Optional[object] = None) -> None:
 
 
 def _curses_select_menu(prompt: str, options: List[str], allow_manual: bool) -> Optional[str]:
+    """Curses-based selection list. Returns the chosen label or a special
+    sentinel when manual input was requested. None if canceled.
+    """
     def _draw(stdscr):
         curses.curs_set(0)
         stdscr.keypad(True)
@@ -462,6 +489,11 @@ def _curses_popup(
     body_lines: List[str],
     prompt: Optional[str] = None,
 ) -> Optional[str]:
+    """Render a centered popup window with optional input prompt.
+
+    Returns entered text if a prompt is shown. Returns None for simple
+    acknowledge popups or when canceled/unavailable.
+    """
     if curses is None:
         return None
     try:
@@ -537,10 +569,12 @@ def _curses_popup(
 
 
 def _curses_show_version(stdscr: object) -> None:
+    """Show the current version in a popup window."""
     _curses_popup(stdscr, "Version", [f"PBS_Chunk_Checker version {__version__}"])
 
 
 def _curses_threads_dialog(stdscr: object, args) -> None:
+    """Interactive dialog to view and set the thread count (curses UI)."""
     lines = [
         "Threads control the number of parallel operations used to:",
         "  - parse index files (*.fidx/*.didx)",
@@ -568,12 +602,14 @@ def _curses_threads_dialog(stdscr: object, args) -> None:
 
 
 def _text_show_version() -> None:
+    """Show the current version in text-mode UI."""
     clear_console()
     print(f"PBS_Chunk_Checker version: {__version__}")
     input("Press Enter to continue...")
 
 
 def _text_threads_dialog(args) -> None:
+    """Interactive dialog to view and set thread count (text UI)."""
     while True:
         clear_console()
         print("PBS_Chunk_Checker - Thread Settings\n")
@@ -598,6 +634,7 @@ def _text_threads_dialog(args) -> None:
 
 
 def _show_threads_dialog(args, stdscr: Optional[object]) -> None:
+    """Dispatch to curses or text thread-settings dialog based on environment."""
     if stdscr is not None and curses is not None:
         _curses_threads_dialog(stdscr, args)
     else:
@@ -605,6 +642,7 @@ def _show_threads_dialog(args, stdscr: Optional[object]) -> None:
 
 
 def _show_version_dialog(stdscr: Optional[object]) -> None:
+    """Dispatch to curses or text version popup based on environment."""
     if stdscr is not None and curses is not None:
         _curses_show_version(stdscr)
     else:
@@ -612,10 +650,12 @@ def _show_version_dialog(stdscr: Optional[object]) -> None:
 
 
 def _emoji_checkbox() -> str:
+    """Return a ✓/✘ marker for the current emoji output state."""
     return "✔" if _EMOJI_ENABLED else "✘"
 
 
 def _toggle_emoji_setting(args, stdscr: Optional[object]) -> None:
+    """Toggle emoji output and keep the menu context visible (no extra popup)."""
     new_state = not _EMOJI_ENABLED
     _set_emoji_mode(new_state)
     args.no_emoji = not new_state
@@ -623,6 +663,7 @@ def _toggle_emoji_setting(args, stdscr: Optional[object]) -> None:
 
 
 def _options_menu_curses(stdscr: object, args) -> None:
+    """Options overlay (curses): change threads and toggle emoji output."""
     curses.curs_set(0)
     stdscr.keypad(True)
     idx = 0
@@ -709,6 +750,7 @@ def _options_menu_curses(stdscr: object, args) -> None:
 
 
 def _options_menu_text(args) -> None:
+    """Options overlay (text): change threads and toggle emoji output."""
     notice = ""
     while True:
         clear_console()
@@ -737,6 +779,7 @@ def _options_menu_text(args) -> None:
 
 
 def _options_menu(args, stdscr: Optional[object]) -> None:
+    """Dispatch to curses/text options overlay based on environment."""
     if stdscr is not None and curses is not None:
         _options_menu_curses(stdscr, args)
     else:
@@ -798,6 +841,7 @@ def _prompt_select(prompt: str, options: List[str], allow_manual: bool = True) -
 
 
 def _curses_choose_directory(base_path: str, feedback: str = "") -> Optional[str]:
+    """Directory browser within base_path using curses. Returns absolute path or None."""
     base = Path(base_path)
     if not base.is_dir():
         return None
@@ -922,7 +966,8 @@ def _curses_choose_directory(base_path: str, feedback: str = "") -> Optional[str
 def _choose_directory(base_path: str) -> Optional[str]:
     """Interactive directory browser inside base_path.
 
-    Returns absolute path of the chosen directory, or None if aborted.
+    Returns the absolute path of the chosen directory, or None if aborted.
+    Uses curses when available, otherwise a numeric text menu.
     """
     base = Path(base_path)
     if not base.is_dir():
@@ -1023,6 +1068,7 @@ def _choose_directory(base_path: str) -> Optional[str]:
 _HEX64 = re.compile(r'"?([A-Fa-f0-9]{64})"?')
 
 def _parse_chunks_from_text(output: str) -> Set[str]:
+    """Extract chunk digests from text output of `proxmox-backup-debug inspect file`."""
     chunks: Set[str] = set()
     in_chunks = False
     for line in output.splitlines():
@@ -1037,6 +1083,10 @@ def _parse_chunks_from_text(output: str) -> Set[str]:
 
 
 def _parse_chunks_from_json(output: str) -> Optional[Set[str]]:
+    """Extract chunk digests from JSON output of `proxmox-backup-debug inspect file`.
+
+    Returns a set of lowercase 64-hex digests, or None if parsing fails.
+    """
     try:
         data = json.loads(output)
     except json.JSONDecodeError:
@@ -1057,6 +1107,11 @@ def _parse_chunks_from_json(output: str) -> Optional[Set[str]]:
 
 
 def extract_chunks_from_file(index_file: str) -> Set[str]:
+    """Return the set of chunk digests referenced by an index file.
+
+    Tries JSON output first (faster, structured), falling back to text parsing
+    if JSON is unavailable or malformed.
+    """
     try:
         cp = run_cmd(
             ["proxmox-backup-debug", "inspect", "file", "--output-format", "json", index_file],
@@ -1107,10 +1162,12 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
 # =============================================================================
 
 def chunk_path_for_digest(chunks_root: str, digest: str) -> Path:
+    """Compute filesystem path of a chunk file from its digest."""
     return Path(chunks_root) / digest[:4] / digest
 
 
 def stat_size_if_exists(path: Path) -> int:
+    """Return file size in bytes or 0 if the path does not exist or is inaccessible."""
     try:
         st = path.stat()
         return int(st.st_size)
@@ -1126,6 +1183,7 @@ def stat_size_if_exists(path: Path) -> int:
 # =============================================================================
 
 def _progress_line(prefix: str, i: int, total: int, extra: str = "") -> None:
+    """Render a single in-place progress line with percentage and optional extras."""
     pct = (i / total * 100.0) if total else 0.0
     msg = f"\r\033[K{prefix} {i}/{total} ({pct:6.2f}%) {extra}"
     print(msg, end="", flush=True)
@@ -1247,6 +1305,11 @@ def _interactive_menu(args) -> Optional[Tuple[str, str]]:
 # =============================================================================
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    """CLI entrypoint: parse args, orchestrate chunk discovery and reporting.
+
+    Returns a POSIX exit code (0 on success). In interactive mode, a TUI is
+    presented when no parameters are provided.
+    """
     # ----- Parse CLI arguments and compute runtime defaults -----
     parser = argparse.ArgumentParser(
         description=(
