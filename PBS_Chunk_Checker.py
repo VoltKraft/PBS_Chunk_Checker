@@ -18,10 +18,11 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.5.2"
+__version__ = "2.6.1"
 
 import argparse
 import concurrent.futures as futures
+import hashlib
 import json
 import os
 import re
@@ -33,6 +34,9 @@ import time
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict, Callable
 from collections import Counter
+import urllib.request
+import urllib.error
+import ssl
 try:
     import curses  # type: ignore
 except Exception:
@@ -124,6 +128,177 @@ def clear_console() -> None:
     """Clear the terminal similar to the POSIX 'clear' command."""
     # ANSI full reset works for Linux terminal emulators
     print("\033c", end="", flush=True)
+
+# =============================================================================
+# Update check and self-update (GitHub Releases)
+# =============================================================================
+
+REPO_OWNER = "VoltKraft"
+REPO_NAME = "PBS_Chunk_Checker"
+GITHUB_API_LATEST = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
+GITHUB_RAW_TEMPLATE = f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/{{tag}}/PBS_Chunk_Checker.py"
+
+def _parse_version_str(s: str) -> Tuple[int, ...]:
+    """Parse version string into a comparable tuple of ints.
+
+    Accepts forms like 'v2.5.3', '2.5.3', '2.5', '2'. Non-digit parts are ignored.
+    """
+    s = (s or "").strip()
+    if s.startswith(("v", "V")):
+        s = s[1:]
+    parts = re.findall(r"\d+", s)
+    return tuple(int(p) for p in parts) if parts else (0,)
+
+def _is_remote_newer(remote: str, current: str) -> bool:
+    ra = _parse_version_str(remote)
+    ca = _parse_version_str(current)
+    n = max(len(ra), len(ca))
+    ra = ra + (0,) * (n - len(ra))
+    ca = ca + (0,) * (n - len(ca))
+    return ra > ca
+
+def _http_request(url: str, timeout: float) -> bytes:
+    req = urllib.request.Request(url, headers={
+        "User-Agent": f"{REPO_NAME}/{__version__}",
+        "Accept": "application/vnd.github+json, application/json;q=0.9, */*;q=0.8",
+    })
+    # Use default SSL context for secure TLS
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        return resp.read()
+
+def fetch_latest_release_info(timeout: float = 5.0) -> Optional[Dict[str, str]]:
+    """Return dict with latest release information or None on failure.
+
+    Dict keys: version, download_url, checksum_url, notes
+    """
+    try:
+        raw = _http_request(GITHUB_API_LATEST, timeout)
+        data = json.loads(raw.decode("utf-8", errors="ignore"))
+    except Exception:
+        return None
+
+    tag = (data.get("tag_name") or data.get("name") or "").strip()
+    if not tag:
+        return None
+    assets = data.get("assets") or []
+    download_url: Optional[str] = None
+    checksum_url: Optional[str] = None
+    # Prefer an attached Python asset if present
+    for asset in assets:
+        try:
+            name = (asset.get("name") or "").lower()
+            if name == "pbs_chunk_checker.py" or name.endswith(".py"):
+                download_url = asset.get("browser_download_url")
+                if download_url:
+                    break
+        except Exception:
+            continue
+    # locate checksum asset (best-effort, e.g. *.sha256)
+    for asset in assets:
+        try:
+            name = (asset.get("name") or "").lower()
+            if "pbs_chunk_checker" in name and name.endswith(".sha256"):
+                candidate = asset.get("browser_download_url")
+                if candidate:
+                    checksum_url = candidate
+                    break
+        except Exception:
+            continue
+
+    # Fallback to raw file from the tag
+    if not download_url:
+        download_url = GITHUB_RAW_TEMPLATE.format(tag=tag)
+    notes = data.get("body") or ""
+    return {
+        "version": tag,
+        "download_url": download_url,
+        "checksum_url": checksum_url,
+        "notes": notes,
+    }
+
+def _extract_sha256_from_text(text: str) -> Optional[str]:
+    """Extract first SHA256 digest from checksum text."""
+    pattern = re.compile(r"\b[a-fA-F0-9]{64}\b")
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = pattern.search(line)
+        if match:
+            return match.group(0).lower()
+    return None
+
+
+def perform_self_update(
+    download_url: str,
+    timeout: float = 30.0,
+    checksum_url: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """Download latest script and replace the current file atomically.
+
+    Returns (success, message).
+    """
+    script_path = Path(__file__).resolve()
+    tmp_path = script_path.with_suffix(script_path.suffix + ".new")
+    bak_path = script_path.with_suffix(script_path.suffix + ".bak")
+    replaced = False
+    try:
+        content = _http_request(download_url, timeout)
+        if not content:
+            return False, "Download returned empty content."
+        # Basic sanity check: ensure file looks like a Python script for this tool
+        header = content[:128].decode("utf-8", errors="ignore")
+        if "PBS_Chunk_Checker" not in header or not header.startswith("#!/"):
+            return False, "Downloaded file does not look like a valid script."
+
+        if checksum_url:
+            try:
+                checksum_data = _http_request(checksum_url, timeout)
+                checksum_text = checksum_data.decode("utf-8", errors="ignore")
+            except Exception as exc:
+                return False, f"Failed to verify checksum: {exc}"
+            expected = _extract_sha256_from_text(checksum_text)
+            if not expected:
+                return False, "Checksum file did not contain a SHA256 digest."
+            digest = hashlib.sha256(content).hexdigest()
+            if digest.lower() != expected.lower():
+                return False, "Checksum mismatch: downloaded file differs from release hash."
+
+        # Preserve mode bits
+        try:
+            st = script_path.stat()
+            mode = st.st_mode
+        except Exception:
+            mode = None  # best-effort
+
+        with open(tmp_path, "wb") as f:
+            f.write(content)
+        if mode is not None:
+            try:
+                os.chmod(tmp_path, mode)
+            except Exception:
+                pass
+
+        # Keep a backup copy (best-effort)
+        try:
+            shutil.copy2(script_path, bak_path)
+        except Exception:
+            pass
+
+        os.replace(tmp_path, script_path)
+        replaced = True
+        return True, f"Successfully updated. Backup saved as {bak_path.name}."
+    except urllib.error.URLError as e:
+        return False, f"Network error: {e}"
+    except Exception as e:
+        return False, f"Update failed: {e}"
+    finally:
+        try:
+            if not replaced and tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
 
 def format_elapsed(seconds: float) -> str:
     """Return a compact runtime string like '1h 02m 03s'."""
@@ -569,8 +744,45 @@ def _curses_popup(
 
 
 def _curses_show_version(stdscr: object) -> None:
-    """Show the current version in a popup window."""
-    _curses_popup(stdscr, "Version", [f"PBS_Chunk_Checker version {__version__}"])
+    """Show version and offer update if a newer release is available."""
+    # Inform about current version first
+    lines = [f"PBS_Chunk_Checker version {__version__}"]
+
+    info = fetch_latest_release_info(timeout=5.0)
+    if info is None:
+        lines.append("")
+        lines.append("Update check failed.")
+        _curses_popup(stdscr, "Version", lines)
+        return
+
+    remote_ver = info.get("version", "")
+    if _is_remote_newer(remote_ver, __version__):
+        lines.append("")
+        lines.append(f"New version available: {remote_ver}")
+        lines.append("")
+        choice = _curses_popup(
+            stdscr,
+            "Version",
+            lines + ["Update now? [y/N]"],
+            prompt="> "
+        )
+        if choice and choice.strip().lower().startswith("y"):
+            ok, msg = perform_self_update(
+                info["download_url"],
+                timeout=30.0,
+                checksum_url=info.get("checksum_url"),
+            )
+            if ok:
+                _curses_popup(stdscr, "Update", [msg, "", "Please restart the program to use the new version."])
+                sys.exit(0)
+            else:
+                _curses_popup(stdscr, "Update", [msg])
+        else:
+            _curses_popup(stdscr, "Version", lines)
+    else:
+        lines.append("")
+        lines.append("You already run the latest version.")
+        _curses_popup(stdscr, "Version", lines)
 
 
 def _curses_threads_dialog(stdscr: object, args) -> None:
@@ -602,9 +814,35 @@ def _curses_threads_dialog(stdscr: object, args) -> None:
 
 
 def _text_show_version() -> None:
-    """Show the current version in text-mode UI."""
+    """Show version and offer update in text mode."""
     clear_console()
-    print(f"PBS_Chunk_Checker version: {__version__}")
+    print(f"PBS_Chunk_Checker version: {__version__}\n")
+    print("Checking for updates...")
+    info = fetch_latest_release_info(timeout=5.0)
+    if info is None:
+        print("Update check failed.")
+        input("Press Enter to continue...")
+        return
+    remote_ver = info.get("version", "")
+    if _is_remote_newer(remote_ver, __version__):
+        print(f"New version available: {remote_ver}")
+        ans = input("Update now? [y/N]: ").strip().lower()
+        if ans.startswith("y"):
+            ok, msg = perform_self_update(
+                info["download_url"],
+                timeout=30.0,
+                checksum_url=info.get("checksum_url"),
+            )
+            print(msg)
+            if ok:
+                print("\nPlease restart the program to use the new version.")
+                input("Press Enter to continue...")
+                sys.exit(0)
+            else:
+                input("Press Enter to continue...")
+                return
+    else:
+        print("You already run the latest version.")
     input("Press Enter to continue...")
 
 
