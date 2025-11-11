@@ -7,7 +7,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.5.2 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.6.1 (`./PBS_Chunk_Checker.py --version`)
 
 ---
 
@@ -124,6 +124,15 @@ Notes:
 | `--version` | Optional | Show the script version and exit | — |
 
 ---
+
+## 🔄 Update (Releases)
+
+In the interactive menus, press `v` (Version) to see the current version. While opening this menu, the script checks in the background for a newer release on GitHub. If one is available, you will be offered to update automatically. The script downloads the latest `PBS_Chunk_Checker.py` and replaces the current file atomically (a `.bak` backup is kept next to it). Restart the script to use the new version.
+
+Notes:
+- The update mechanism uses GitHub Releases. If no dedicated asset is attached, it falls back to the tagged raw file.
+- When a `.sha256` checksum asset is published with a release, the script verifies the downloaded file before replacing the current version.
+- Network errors or rate limits will be reported and do not affect normal operation.
 
 ## 📊 Output Example
 
