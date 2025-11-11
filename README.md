@@ -9,6 +9,8 @@ This allows accurate insights into space consumption per tenant or object — us
 
 **Current version:** 2.7.2 (`./PBS_Chunk_Checker.py --version`)
 
+See full changes in `CHANGELOG.md`.
+
 ---
 
 ## 💡 Why This Script Exists
@@ -188,16 +190,6 @@ Notes:
   - `proxmox-backup-debug`
 - The script validates that these CLI tools are available before starting and aborts with an actionable error if they are missing.
 - Use the `--no-emoji` flag when your terminal cannot display Unicode emoji; the script will switch to ASCII labels automatically.
-
----
-
-## 📝 Changelog
-
-- 2.7.2
-  - Rename CLI flag `--check-updates` to `--update`.
-  - Keep `--version` as pure version output again.
-- 2.7.1
-  - Split version and update logic: `--version` prints version; `--check-updates` checks and offers updates.
 
 ---
 
