@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.6.1"
+__version__ = "2.7.0"
 
 import argparse
 import concurrent.futures as futures
@@ -813,15 +813,17 @@ def _curses_threads_dialog(stdscr: object, args) -> None:
     _curses_popup(stdscr, "Thread Settings", [f"Threads set to {val}."])
 
 
-def _text_show_version() -> None:
+def _text_show_version(pause_after: bool = True, clear_screen: bool = True) -> None:
     """Show version and offer update in text mode."""
-    clear_console()
+    if clear_screen:
+        clear_console()
     print(f"PBS_Chunk_Checker version: {__version__}\n")
     print("Checking for updates...")
     info = fetch_latest_release_info(timeout=5.0)
     if info is None:
         print("Update check failed.")
-        input("Press Enter to continue...")
+        if pause_after:
+            input("Press Enter to continue...")
         return
     remote_ver = info.get("version", "")
     if _is_remote_newer(remote_ver, __version__):
@@ -836,14 +838,17 @@ def _text_show_version() -> None:
             print(msg)
             if ok:
                 print("\nPlease restart the program to use the new version.")
-                input("Press Enter to continue...")
+                if pause_after:
+                    input("Press Enter to continue...")
                 sys.exit(0)
             else:
-                input("Press Enter to continue...")
+                if pause_after:
+                    input("Press Enter to continue...")
                 return
     else:
         print("You already run the latest version.")
-    input("Press Enter to continue...")
+    if pause_after:
+        input("Press Enter to continue...")
 
 
 def _text_threads_dialog(args) -> None:
@@ -1557,9 +1562,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     parser.add_argument(
         "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-        help="Show program version and exit.",
+        action="store_true",
+        help="Show program version, check for updates, then exit.",
     )
     parser.add_argument(
         "--datastore",
@@ -1594,6 +1598,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     _set_emoji_mode(not args.no_emoji)
+
+    if args.version:
+        _text_show_version(pause_after=False, clear_screen=False)
+        return 0
+
     clear_console()
 
     ensure_required_tools()
