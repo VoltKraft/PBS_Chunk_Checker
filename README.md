@@ -7,7 +7,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.7.0 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.7.2 (`./PBS_Chunk_Checker.py --version`)
 
 ---
 
@@ -121,7 +121,8 @@ Notes:
 | `--searchpath` | Required (script mode) | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
 | `--threads` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
 | `--no-emoji` | Optional | Replace emoji icons in CLI output with ASCII labels | Emoji output |
-| `--version` | Optional | Show the script version, check for updates and offer self-update, then exit | — |
+| `--version` | Optional | Show the script version and exit | — |
+| `--update` | Optional | Check for new releases and offer self-update, then exit | — |
 
 ---
 
@@ -129,12 +130,14 @@ Notes:
 
 In the interactive menus, press `v` (Version) to see the current version. While opening this menu, the script checks in the background for a newer release on GitHub. If one is available, you will be offered to update automatically. The script downloads the latest `PBS_Chunk_Checker.py` and replaces the current file atomically (a `.bak` backup is kept next to it). Restart the script to use the new version.
 
-You can now also use `--version` on the command line to perform the same check-and-offer flow without entering the interactive menus. This prints the current version, queries GitHub Releases, and — if a newer version exists — asks whether to update.
+You can now also use `--update` on the command line to perform the same check-and-offer flow without entering the interactive menus. This prints the current version, queries GitHub Releases, and — if a newer version exists — asks whether to update.
 
 Notes:
 - The update mechanism uses GitHub Releases. If no dedicated asset is attached, it falls back to the tagged raw file.
 - When a `.sha256` checksum asset is published with a release, the script verifies the downloaded file before replacing the current version.
 - Network errors or rate limits will be reported and do not affect normal operation.
+
+---
 
 ## 📊 Output Example
 
@@ -175,6 +178,7 @@ Notes:
 
 ---
 
+
 ## ⚠️ Notes
 
 - The script requires **no additional Python packages** — it uses only built-in modules.
@@ -184,6 +188,16 @@ Notes:
   - `proxmox-backup-debug`
 - The script validates that these CLI tools are available before starting and aborts with an actionable error if they are missing.
 - Use the `--no-emoji` flag when your terminal cannot display Unicode emoji; the script will switch to ASCII labels automatically.
+
+---
+
+## 📝 Changelog
+
+- 2.7.2
+  - Rename CLI flag `--check-updates` to `--update`.
+  - Keep `--version` as pure version output again.
+- 2.7.1
+  - Split version and update logic: `--version` prints version; `--check-updates` checks and offers updates.
 
 ---
 

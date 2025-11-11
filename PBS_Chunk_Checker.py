@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.7.0"
+__version__ = "2.7.2"
 
 import argparse
 import concurrent.futures as futures
@@ -1562,8 +1562,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     parser.add_argument(
         "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show program version and exit.",
+    )
+    parser.add_argument(
+        "--update",
         action="store_true",
-        help="Show program version, check for updates, then exit.",
+        help="Check for a newer release and offer to update, then exit.",
     )
     parser.add_argument(
         "--datastore",
@@ -1599,7 +1605,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     _set_emoji_mode(not args.no_emoji)
 
-    if args.version:
+    if args.update:
         _text_show_version(pause_after=False, clear_screen=False)
         return 0
 
