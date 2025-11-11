@@ -56,7 +56,38 @@ jobs:
         run: |
           cp PBS_Chunk_Checker.py PBS_Chunk_Checker_v${{ steps.version.outputs.version }}.py
 
-      # 6️⃣ Create GitHub Release
+      # 6️⃣ Generate release notes including the matching CHANGELOG section
+      - name: Build release body from CHANGELOG.md
+        if: steps.check_release.outputs.exists == 'false'
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          CLEAN_VER="${VERSION#v}"
+
+          echo "🚀 Automated release from main branch  " > RELEASE_BODY.md
+          echo "Version: v${VERSION}  " >> RELEASE_BODY.md
+          echo "Commit: ${{ github.sha }}" >> RELEASE_BODY.md
+          echo "" >> RELEASE_BODY.md
+          echo "Changes in v${VERSION}:" >> RELEASE_BODY.md
+          echo "" >> RELEASE_BODY.md
+
+          # Extract the section for this version from CHANGELOG.md
+          awk -v ver="$CLEAN_VER" '
+            BEGIN { keep=0 }
+            $0 ~ ("^- " ver "([ \t]|$)") { keep=1; print; next }
+            keep && $0 ~ "^- [0-9]" { keep=0 }
+            keep { print }
+          ' CHANGELOG.md > CHANGELOG_EXTRACT.md || true
+
+          if [ ! -s CHANGELOG_EXTRACT.md ]; then
+            echo "- No specific changelog entry found for v${VERSION}. See CHANGELOG.md." >> RELEASE_BODY.md
+          else
+            cat CHANGELOG_EXTRACT.md >> RELEASE_BODY.md
+          fi
+
+          # Cleanup temporary extract file regardless of outcome
+          rm -f CHANGELOG_EXTRACT.md
+
+      # 7️⃣ Create GitHub Release
       - name: Create GitHub Release
         if: steps.check_release.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
@@ -65,8 +96,5 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: "PBS_Chunk_Checker v${{ steps.version.outputs.version }}"
-          body: |
-            🚀 Automated release from main branch  
-            Version: v${{ steps.version.outputs.version }}  
-            Commit: ${{ github.sha }}
+          body_path: RELEASE_BODY.md
           files: PBS_Chunk_Checker_v${{ steps.version.outputs.version }}.py
