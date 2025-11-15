@@ -190,6 +190,19 @@ Notes:
   - `proxmox-backup-debug`
 - The script validates that these CLI tools are available before starting and aborts with an actionable error if they are missing.
 - Use the `--no-emoji` flag when your terminal cannot display Unicode emoji; the script will switch to ASCII labels automatically.
+---
+
+---
+
+## 💬 Contact & Community
+
+Issues and feature requests are welcome via GitHub Issues.
+Please read the [`CONTRIBUTING.md`](./CONTRIBUTING.md) first.
+
+## ⭐ Support the Project
+
+If you find Chronos useful, consider leaving a star on GitHub ⭐
+It helps visibility and supports continued development.
 
 ---
 
