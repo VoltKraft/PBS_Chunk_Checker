@@ -1,5 +1,7 @@
 # PBS_Chunk_Checker (Python Edition)
 
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](./LICENSE)
+
 ## 🧩 Overview
 
 The **PBS_Chunk_Checker** is a diagnostic and analysis tool for **Proxmox Backup Server (PBS)** datastores.  
