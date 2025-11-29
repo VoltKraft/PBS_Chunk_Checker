@@ -9,7 +9,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.8.1 (`./pbs_chunk_checker.py --version`)
+**Current version:** 2.9.0 (`./pbs_chunk_checker.py --version`)
 
 See full changes in `CHANGELOG.md`.
 
@@ -76,7 +76,7 @@ In interactive mode you can:
 - Select an existing datastore from the list or enter one manually
 - Navigate the datastore directory structure and choose the search path (or enter it manually)
 - Scan all guests within the current path (datastore root or a selected namespace) to get a per-guest size overview, sorted by usage
-- Open the Options overlay (press `o`) to adjust threads and toggle emoji output
+- Open the Options overlay (press `o`) to adjust threads, toggle emoji output, and enable guest comments next to IDs
 - When starting the full datastore scan you will see a warning and must confirm with `Proceed anyway? [y/N]` (English prompt) because the run can take a long time.
 
 Interactive controls (TUI):
@@ -104,6 +104,7 @@ More threads can significantly speed up evaluations on fast storage and when man
 Defaults: `2 × CPU cores`, capped at `32`.
 
 You can change the value in interactive mode by pressing `o` (Options) or by passing `--threads N` on the command line. Within the Options overlay you can also toggle emoji output (equivalent to `--no-emoji`) using the Space key.
+You can additionally enable showing a short guest label derived from the latest snapshot comment next to each VM/CT ID via the Options overlay or the `--show-comments` flag.
 
 ### Portable execution (no local file)
 Stream the script from GitHub and execute it immediately.
@@ -134,6 +135,7 @@ Notes:
 | `--all-guests` | Optional | Scan the entire datastore (or only the namespace given via `--searchpath`) and print a per-guest size summary (requires `--datastore`) | — |
 | `--threads` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
 | `--no-emoji` | Optional | Replace emoji icons in CLI output with ASCII labels | Emoji output |
+| `--show-comments` | Optional | Show a short guest label derived from the latest snapshot comment next to each VM/CT in per-guest summaries and interactive path selection | Disabled |
 | `--version` | Optional | Show the script version and exit | — |
 | `--update` | Optional | Check for new releases and offer self-update, then exit | — |
 
