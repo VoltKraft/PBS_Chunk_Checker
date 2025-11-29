@@ -16,13 +16,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Extract version from PBS_Chunk_Checker.py
-      - name: Read version from PBS_Chunk_Checker.py
+      # 2️⃣ Extract version from pbs_chunk_checker.py
+      - name: Read version from pbs_chunk_checker.py
         id: version
         run: |
-          VERSION=$(grep '__version__' PBS_Chunk_Checker.py | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION=$(grep '__version__' pbs_chunk_checker.py | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
           if [ -z "$VERSION" ]; then
-            echo "❌ Version not found in PBS_Chunk_Checker.py"
+            echo "❌ Version not found in pbs_chunk_checker.py"
             exit 1
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -50,11 +50,11 @@ jobs:
         if: steps.check_release.outputs.exists == 'true'
         run: echo "Release already exists, skipping." && exit 0
 
-      # 5️⃣ (Optional) Rename file to include version for clarity
+      # 5️⃣ (Optional) Copy file to include version for clarity
       - name: Copy versioned script
         if: steps.check_release.outputs.exists == 'false'
         run: |
-          cp PBS_Chunk_Checker.py PBS_Chunk_Checker_v${{ steps.version.outputs.version }}.py
+          cp pbs_chunk_checker.py pbs_chunk_checker_v${{ steps.version.outputs.version }}.py
 
       # 6️⃣ Generate release notes including the matching CHANGELOG section
       - name: Build release body from CHANGELOG.md
@@ -97,4 +97,4 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           name: "PBS_Chunk_Checker v${{ steps.version.outputs.version }}"
           body_path: RELEASE_BODY.md
-          files: PBS_Chunk_Checker_v${{ steps.version.outputs.version }}.py
+          files: pbs_chunk_checker_v${{ steps.version.outputs.version }}.py

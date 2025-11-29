@@ -33,9 +33,9 @@ Prerequisites:
 
 Run locally:
 ```bash
-./PBS_Chunk_Checker.py --datastore <DATASTORE_NAME> --searchpath <SEARCH_PATH>
+./pbs_chunk_checker.py --datastore <DATASTORE_NAME> --searchpath <SEARCH_PATH>
 # or interactive mode
-./PBS_Chunk_Checker.py
+./pbs_chunk_checker.py
 ```
 
 Tip (offline/mocking): if you don’t have PBS tools locally, you can temporarily put simple stub scripts named `proxmox-backup-manager` and `proxmox-backup-debug` earlier in your `PATH` that print minimal JSON/text the script expects. This helps iterate on parsing and CLI behavior, but please validate on a real PBS host before submitting.
