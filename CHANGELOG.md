@@ -1,5 +1,8 @@
 # 📝 Changelog
 
+- 2.9.0
+  - Add an optional `--show-comments` flag and corresponding interactive option to show a short label derived from the latest PBS snapshot comment next to each VM/CT in the per‑guest summary and interactive search‑path selector (best‑effort, using `proxmox-backup-debug api get /admin/datastore/<DATASTORE>/snapshots`).
+  - Simplify the per‑guest overview output by removing the raw byte count from each line and keeping only the human‑readable IEC size (GiB / MiB / TiB) to improve readability.
 - 2.8.1
   - Rename the main script file from `PBS_Chunk_Checker.py` to `pbs_chunk_checker.py` and adjust the self‑update logic and GitHub release workflow accordingly.
   - Make the codebase more PEP‑8 compliant (import grouping, line breaks, and long f‑strings) without changing runtime behavior.

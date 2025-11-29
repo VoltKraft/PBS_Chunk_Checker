@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.8.1"
+__version__ = "2.9.0"
 
 import argparse
 import concurrent.futures as futures
@@ -34,6 +34,7 @@ import time
 from collections import Counter
 from pathlib import Path
 from typing import (
+    Any,
     Callable,
     Dict,
     Iterable,
@@ -76,10 +77,14 @@ COMMAND_ENV.setdefault("LANG", "C")
 COMMAND_TIMEOUTS = {
     "manager_list": 10,
     "manager_show": 10,
+    "debug_snapshots": 20,
     "debug_inspect": 60,
 }
 DATASTORE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
+_SNAPSHOT_LIST_CACHE: Dict[Tuple[str, str], Optional[List[Dict[str, Any]]]] = {}
+_GUEST_COMMENT_CACHE: Dict[Tuple[str, str, str, str], Optional[str]] = {}
+GUEST_COMMENT_MAXLEN = 48
 
 
 def _format_command(cmd: object) -> str:
@@ -984,9 +989,14 @@ def _show_version_dialog(stdscr: Optional[object]) -> None:
         _text_show_version()
 
 
+def _bool_checkbox(value: bool) -> str:
+    """Return a ✓/✘ marker for a boolean flag."""
+    return "✔" if value else "✘"
+
+
 def _emoji_checkbox() -> str:
     """Return a ✓/✘ marker for the current emoji output state."""
-    return "✔" if _EMOJI_ENABLED else "✘"
+    return _bool_checkbox(_EMOJI_ENABLED)
 
 
 def _toggle_emoji_setting(args, stdscr: Optional[object]) -> None:
@@ -995,6 +1005,12 @@ def _toggle_emoji_setting(args, stdscr: Optional[object]) -> None:
     _set_emoji_mode(new_state)
     args.no_emoji = not new_state
     # No separate popup to keep the menu context visible.
+
+
+def _toggle_comments_setting(args) -> None:
+    """Toggle display of guest comments (per-guest summary and directory browser)."""
+    current = getattr(args, "show_comments", False)
+    setattr(args, "show_comments", not current)
 
 
 def _options_menu_curses(stdscr: object, args) -> None:
@@ -1009,6 +1025,11 @@ def _options_menu_curses(stdscr: object, args) -> None:
         return [
             ("threads", f"Set threads ({args.threads})"),
             ("emoji", f"Emoji output [{_emoji_checkbox()}]"),
+            (
+                "comments",
+                "Show guest comments "
+                f"[{_bool_checkbox(getattr(args, 'show_comments', False))}]",
+            ),
             ("back", "Back"),
         ]
 
@@ -1073,6 +1094,13 @@ def _options_menu_curses(stdscr: object, args) -> None:
             elif action == "emoji":
                 _toggle_emoji_setting(args, stdscr)
                 notice = f"Emoji output {'enabled' if _EMOJI_ENABLED else 'disabled'}."
+            elif action == "comments":
+                _toggle_comments_setting(args)
+                notice = (
+                    "Guest comments enabled."
+                    if getattr(args, "show_comments", False)
+                    else "Guest comments disabled."
+                )
             elif action == "back":
                 return
         elif ch == ord(' '):
@@ -1080,6 +1108,13 @@ def _options_menu_curses(stdscr: object, args) -> None:
             if action == "emoji":
                 _toggle_emoji_setting(args, stdscr)
                 notice = f"Emoji output {'enabled' if _EMOJI_ENABLED else 'disabled'}."
+            elif action == "comments":
+                _toggle_comments_setting(args)
+                notice = (
+                    "Guest comments enabled."
+                    if getattr(args, "show_comments", False)
+                    else "Guest comments disabled."
+                )
         elif ch in (ord('q'), ord('Q'), 27):
             return
 
@@ -1095,6 +1130,11 @@ def _options_menu_text(args) -> None:
         print(f" 1) Set threads ({args.threads})")
         emoji_state = "enabled" if _EMOJI_ENABLED else "disabled"
         print(f" 2) Emoji output [{_emoji_checkbox()} - {emoji_state}]")
+        comments_state = "enabled" if getattr(args, "show_comments", False) else "disabled"
+        print(
+            " 3) Show guest comments "
+            f"[{_bool_checkbox(getattr(args, 'show_comments', False))} - {comments_state}]"
+        )
         print(" q) Back")
         raw = input("> ")
         if raw == " ":
@@ -1107,6 +1147,13 @@ def _options_menu_text(args) -> None:
         elif choice in ("2", "space"):
             _toggle_emoji_setting(args, None)
             notice = f"Emoji output {'enabled' if _EMOJI_ENABLED else 'disabled'}."
+        elif choice == "3":
+            _toggle_comments_setting(args)
+            notice = (
+                "Guest comments enabled."
+                if getattr(args, "show_comments", False)
+                else "Guest comments disabled."
+            )
         elif choice == "q":
             return
         else:
@@ -1182,7 +1229,12 @@ def _prompt_select(
         feedback = "Invalid input, please try again."
 
 
-def _curses_choose_directory(base_path: str, feedback: str = "") -> Optional[str]:
+def _curses_choose_directory(
+    base_path: str,
+    feedback: str = "",
+    datastore_name: Optional[str] = None,
+    args: Optional[object] = None,
+) -> Optional[str]:
     """Directory browser within base_path using curses. Returns absolute path or None."""
     base = Path(base_path)
     if not base.is_dir():
@@ -1216,7 +1268,16 @@ def _curses_choose_directory(base_path: str, feedback: str = "") -> Optional[str
             if current != base:
                 entries.append((".. (up one level)", "up"))
             for p in subs:
-                entries.append((p.name + "/", f"enter:{p.name}"))
+                label = p.name + "/"
+                if (
+                    datastore_name
+                    and args is not None
+                    and getattr(args, "show_comments", False)
+                ):
+                    comment = get_guest_comment_for_path(datastore_name, base, p)
+                    if comment:
+                        label = f"{label} | {comment}"
+                entries.append((label, f"enter:{p.name}"))
 
             stdscr.erase()
             h, w = stdscr.getmaxyx()
@@ -1308,7 +1369,11 @@ def _curses_choose_directory(base_path: str, feedback: str = "") -> Optional[str
         return None
 
 
-def _choose_directory(base_path: str) -> Optional[str]:
+def _choose_directory(
+    base_path: str,
+    datastore_name: Optional[str] = None,
+    args: Optional[object] = None,
+) -> Optional[str]:
     """Interactive directory browser inside base_path.
 
     Returns the absolute path of the chosen directory, or None if aborted.
@@ -1321,7 +1386,7 @@ def _choose_directory(base_path: str) -> Optional[str]:
     if _want_curses_ui():
         feedback = ""
         while True:
-            res = _curses_choose_directory(base_path, feedback)
+            res = _curses_choose_directory(base_path, feedback, datastore_name, args)
             if res == _CURSES_SENTINEL_MANUAL:
                 clear_console()
                 manual_prompt = (
@@ -1368,7 +1433,16 @@ def _choose_directory(base_path: str) -> Optional[str]:
         print("Select a directory:")
         print("  0) Use current path")
         for i, p in enumerate(subs, 1):
-            print(f"  {i}) {p.name}")
+            label = p.name
+            if (
+                datastore_name
+                and args is not None
+                and getattr(args, "show_comments", False)
+            ):
+                comment = get_guest_comment_for_path(datastore_name, base, p)
+                if comment:
+                    label = f"{p.name}/ | {comment}"
+            print(f"  {i}) {label}")
         extra_cmds = ["u = go up one level"]
         if _UI_OPTIONS_HANDLER is not None:
             extra_cmds.append("o = options")
@@ -1799,6 +1873,164 @@ def discover_guest_paths(scan_root: Path) -> List[Path]:
     return guests
 
 
+def _extract_guest_location(datastore_root: Path, guest_path: Path) -> Optional[Tuple[str, str, str]]:
+    """Return (namespace, backup_type, backup_id) for a VM/CT directory under datastore_root.
+
+    Namespace is returned without the leading 'ns' component and may be an empty string
+    for the root namespace.
+    """
+    try:
+        rel = guest_path.relative_to(datastore_root)
+    except ValueError:
+        return None
+
+    parts = list(rel.parts)
+    if not parts:
+        return None
+
+    backup_type: Optional[str] = None
+    backup_id: Optional[str] = None
+    namespace_parts: List[str] = []
+
+    for idx, part in enumerate(parts):
+        if part in ("vm", "ct"):
+            if idx + 1 >= len(parts):
+                return None
+            backup_type = part
+            backup_id = parts[idx + 1]
+            start_idx = 1 if parts and parts[0] == "ns" else 0
+            namespace_parts = parts[start_idx:idx]
+            break
+
+    if not backup_type or not backup_id:
+        return None
+
+    namespace = "/".join(namespace_parts)
+    return namespace, backup_type, backup_id
+
+
+def _load_snapshots_for_namespace(datastore_name: str, namespace: str) -> List[Dict[str, Any]]:
+    """Return cached list of snapshot metadata for (datastore, namespace)."""
+    if not datastore_name:
+        return []
+    ns_key = namespace or ""
+    cache_key = (datastore_name, ns_key)
+    cached = _SNAPSHOT_LIST_CACHE.get(cache_key)
+    if cached is not None:
+        return cached or []
+
+    cmd: List[str] = [
+        "proxmox-backup-debug",
+        "api",
+        "get",
+        f"/admin/datastore/{datastore_name}/snapshots",
+        "--output-format",
+        "json",
+    ]
+    if namespace:
+        cmd.extend(["--ns", namespace])
+
+    try:
+        cp = run_cmd(
+            cmd,
+            timeout=COMMAND_TIMEOUTS.get("debug_snapshots"),
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        _SNAPSHOT_LIST_CACHE[cache_key] = None
+        return []
+
+    try:
+        raw = cp.stdout or ""
+        payload: Any = json.loads(raw)
+    except json.JSONDecodeError:
+        _SNAPSHOT_LIST_CACHE[cache_key] = []
+        return []
+
+    items: List[Dict[str, Any]]
+    if isinstance(payload, list):
+        items = [x for x in payload if isinstance(x, dict)]
+    elif isinstance(payload, dict):
+        data = payload.get("data")
+        if isinstance(data, list):
+            items = [x for x in data if isinstance(x, dict)]
+        else:
+            items = []
+    else:
+        items = []
+
+    _SNAPSHOT_LIST_CACHE[cache_key] = items
+    return items
+
+
+def _simplify_guest_comment(raw: str) -> str:
+    """Return a compact guest label derived from the PBS comment.
+
+    Uses only the first whitespace-separated token and truncates to a maximum
+    length so that default comments like '{{guestname}} ...' stay readable.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    first = text.split(None, 1)[0]
+    if len(first) > GUEST_COMMENT_MAXLEN:
+        return first[: GUEST_COMMENT_MAXLEN - 1] + "…"
+    return first
+
+
+def get_guest_comment_for_path(
+    datastore_name: Optional[str],
+    datastore_root: Path,
+    guest_path: Path,
+) -> Optional[str]:
+    """Return a short guest label derived from the latest snapshot comment.
+
+    Looks up the newest snapshot for the VM/CT identified by guest_path and
+    extracts its comment. Best-effort only: returns None on any error.
+    """
+    if not datastore_name:
+        return None
+
+    location = _extract_guest_location(datastore_root, guest_path)
+    if location is None:
+        return None
+
+    namespace, backup_type, backup_id = location
+    ns_key = namespace or ""
+    cache_key = (datastore_name, ns_key, backup_type, backup_id)
+    if cache_key in _GUEST_COMMENT_CACHE:
+        return _GUEST_COMMENT_CACHE[cache_key]
+
+    snapshots = _load_snapshots_for_namespace(datastore_name, namespace)
+    comment: Optional[str] = None
+    if snapshots:
+        candidates: List[Dict[str, Any]] = []
+        for item in snapshots:
+            if str(item.get("backup-id")) != str(backup_id):
+                continue
+            if backup_type and str(item.get("backup-type")) != backup_type:
+                continue
+            candidates.append(item)
+        if candidates:
+            def _snap_time(it: Dict[str, Any]) -> float:
+                t = it.get("backup-time")
+                if isinstance(t, (int, float)):
+                    return float(t)
+                try:
+                    return float(str(t))
+                except Exception:
+                    return 0.0
+
+            latest = max(candidates, key=_snap_time)
+            raw_comment = latest.get("comment")
+            if isinstance(raw_comment, str):
+                simplified = _simplify_guest_comment(raw_comment)
+                if simplified:
+                    comment = simplified
+
+    _GUEST_COMMENT_CACHE[cache_key] = comment
+    return comment
+
+
 def _confirm_full_datastore_scan_text(clear_screen: bool = True) -> bool:
     """Text-mode confirmation for the full datastore scan."""
     if clear_screen:
@@ -1870,10 +2102,7 @@ def print_full_datastore_summary(
             note = "no index files"
         elif res.unique_chunks == 0:
             note = "no chunks"
-        line = (
-            f"  {label.ljust(width_label)} : {size_h.rjust(width_size)} "
-            f"({res.unique_bytes} B)"
-        )
+        line = f"  {label.ljust(width_label)} : {size_h.rjust(width_size)}"
         if note:
             line += f"  [{note}]"
         print(line)
@@ -1924,7 +2153,16 @@ def run_full_datastore_scan(
             timer_base=guest_start,
             progress_label=f"{idx}/{total_guests} {label}",
         )
-        results.append((label, result))
+        summary_label = label
+        if getattr(args, "show_comments", False):
+            comment = get_guest_comment_for_path(
+                getattr(args, "datastore", None),
+                datastore_root,
+                guest_path,
+            )
+            if comment:
+                summary_label = f"{label} ({comment})"
+        results.append((summary_label, result))
         if result.index_files == 0:
             print(f"{ICONS['info']} No index files (*.fidx/*.didx) found for {label}.")
             continue
@@ -2055,7 +2293,7 @@ def _interactive_menu(args) -> Optional[Tuple[str, Optional[str], bool]]:
                     )
                     input("Press Enter to continue...")
                     continue
-                abs_selected = _choose_directory(datastore_path)
+                abs_selected = _choose_directory(datastore_path, datastore_name, args)
                 if abs_selected is None:
                     continue
                 rel = (
@@ -2155,6 +2393,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--no-emoji",
         action="store_true",
         help="Disable emoji characters in console output.",
+    )
+    parser.add_argument(
+        "--show-comments",
+        action="store_true",
+        help=(
+            "Show a short label derived from the latest snapshot comment "
+            "next to each guest in per-guest summaries and interactive "
+            "path selection (best-effort)."
+        ),
     )
     args = parser.parse_args(argv)
 
