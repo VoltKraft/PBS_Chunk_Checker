@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.8.0"
+__version__ = "2.8.1"
 
 import argparse
 import concurrent.futures as futures
@@ -31,12 +31,24 @@ import signal
 import subprocess
 import sys
 import time
-from pathlib import Path
-from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict, Callable, NamedTuple
 from collections import Counter
-import urllib.request
+from pathlib import Path
+from typing import (
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+)
 import urllib.error
+import urllib.request
 import ssl
+
 try:
     import curses  # type: ignore
 except Exception:
@@ -67,6 +79,7 @@ COMMAND_TIMEOUTS = {
     "debug_inspect": 60,
 }
 DATASTORE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+
 
 
 def _format_command(cmd: object) -> str:
@@ -124,6 +137,7 @@ def _set_emoji_mode(enabled: bool) -> None:
     ICONS.clear()
     ICONS.update(EMOJI_ICONS if enabled else ASCII_ICONS)
 
+
 def clear_console() -> None:
     """Clear the terminal similar to the POSIX 'clear' command."""
     # ANSI full reset works for Linux terminal emulators
@@ -135,19 +149,28 @@ def clear_console() -> None:
 
 REPO_OWNER = "VoltKraft"
 REPO_NAME = "PBS_Chunk_Checker"
-GITHUB_API_LATEST = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-GITHUB_RAW_TEMPLATE = f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/{{tag}}/PBS_Chunk_Checker.py"
+GITHUB_API_LATEST = (
+    "https://api.github.com/repos/"
+    f"{REPO_OWNER}/{REPO_NAME}/releases/latest"
+)
+GITHUB_RAW_TEMPLATE = (
+    "https://raw.githubusercontent.com/"
+    f"{REPO_OWNER}/{REPO_NAME}/{{tag}}/pbs_chunk_checker.py"
+)
+
 
 def _parse_version_str(s: str) -> Tuple[int, ...]:
     """Parse version string into a comparable tuple of ints.
 
-    Accepts forms like 'v2.5.3', '2.5.3', '2.5', '2'. Non-digit parts are ignored.
+    Accepts forms like 'v2.5.3', '2.5.3', '2.5', '2'.
+    Non-digit parts are ignored.
     """
     s = (s or "").strip()
     if s.startswith(("v", "V")):
         s = s[1:]
     parts = re.findall(r"\d+", s)
     return tuple(int(p) for p in parts) if parts else (0,)
+
 
 def _is_remote_newer(remote: str, current: str) -> bool:
     ra = _parse_version_str(remote)
@@ -157,15 +180,23 @@ def _is_remote_newer(remote: str, current: str) -> bool:
     ca = ca + (0,) * (n - len(ca))
     return ra > ca
 
+
 def _http_request(url: str, timeout: float) -> bytes:
-    req = urllib.request.Request(url, headers={
-        "User-Agent": f"{REPO_NAME}/{__version__}",
-        "Accept": "application/vnd.github+json, application/json;q=0.9, */*;q=0.8",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": f"{REPO_NAME}/{__version__}",
+            "Accept": (
+                "application/vnd.github+json, "
+                "application/json;q=0.9, */*;q=0.8"
+            ),
+        },
+    )
     # Use default SSL context for secure TLS
     ctx = ssl.create_default_context()
     with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
         return resp.read()
+
 
 def fetch_latest_release_info(timeout: float = 5.0) -> Optional[Dict[str, str]]:
     """Return dict with latest release information or None on failure.
@@ -217,6 +248,7 @@ def fetch_latest_release_info(timeout: float = 5.0) -> Optional[Dict[str, str]]:
         "notes": notes,
     }
 
+
 def _extract_sha256_from_text(text: str) -> Optional[str]:
     """Extract first SHA256 digest from checksum text."""
     pattern = re.compile(r"\b[a-fA-F0-9]{64}\b")
@@ -228,6 +260,7 @@ def _extract_sha256_from_text(text: str) -> Optional[str]:
         if match:
             return match.group(0).lower()
     return None
+
 
 
 def perform_self_update(
@@ -263,7 +296,11 @@ def perform_self_update(
                 return False, "Checksum file did not contain a SHA256 digest."
             digest = hashlib.sha256(content).hexdigest()
             if digest.lower() != expected.lower():
-                return False, "Checksum mismatch: downloaded file differs from release hash."
+                return (
+                    False,
+                    "Checksum mismatch: downloaded file differs "
+                    "from release hash.",
+                )
 
         # Preserve mode bits
         try:
@@ -300,6 +337,7 @@ def perform_self_update(
         except Exception:
             pass
 
+
 def format_elapsed(seconds: float) -> str:
     """Return a compact runtime string like '1h 02m 03s'."""
     seconds_int = int(seconds)
@@ -308,6 +346,7 @@ def format_elapsed(seconds: float) -> str:
     if hours:
         return f"{hours}h {minutes:02}m {secs:02}s"
     return f"{minutes}m {secs:02}s"
+
 
 def human_readable_size(num_bytes: int) -> str:
     """Format bytes using IEC units with 'B' suffix (e.g., '1.0KiB')."""
@@ -345,7 +384,9 @@ def run_cmd(
             env=COMMAND_ENV,
         )
     except FileNotFoundError as e:
-        sys.stderr.write(f"{ICONS['error']} Error: required command not found: {cmd[0]}\n")
+        sys.stderr.write(
+            f"{ICONS['error']} Error: required command not found: {cmd[0]}\n"
+        )
         raise
     except subprocess.TimeoutExpired as e:
         executed = _format_command(command)
@@ -356,7 +397,8 @@ def run_cmd(
             else "configured limit"
         )
         sys.stderr.write(
-            f"{ICONS['error']} Error: command timed out after {timeout_desc}: {executed}\n"
+            f"{ICONS['error']} Error: command timed out after "
+            f"{timeout_desc}: {executed}\n"
         )
         raise
 
@@ -366,7 +408,14 @@ def get_datastore_path(datastore_name: str) -> str:
     last_error = ""
     try:
         cp = run_cmd(
-            ["proxmox-backup-manager", "datastore", "show", datastore_name, "--output-format", "json"],
+            [
+                "proxmox-backup-manager",
+                "datastore",
+                "show",
+                datastore_name,
+                "--output-format",
+                "json",
+            ],
             check=False,
             timeout=COMMAND_TIMEOUTS["manager_show"],
         )
@@ -387,13 +436,21 @@ def get_datastore_path(datastore_name: str) -> str:
             if err_msg:
                 last_error = err_msg
     except subprocess.TimeoutExpired as exc:
-        last_error = f"{_format_command(exc.cmd)} timed out after {COMMAND_TIMEOUTS['manager_show']}s"
+        last_error = (
+            f"{_format_command(exc.cmd)} timed out after "
+            f"{COMMAND_TIMEOUTS['manager_show']}s"
+        )
     except FileNotFoundError:
         raise
 
     try:
         cp = run_cmd(
-            ["proxmox-backup-manager", "datastore", "show", datastore_name],
+            [
+                "proxmox-backup-manager",
+                "datastore",
+                "show",
+                datastore_name,
+            ],
             check=False,
             timeout=COMMAND_TIMEOUTS["manager_show"],
         )
@@ -409,7 +466,10 @@ def get_datastore_path(datastore_name: str) -> str:
             if err_msg:
                 last_error = err_msg
     except subprocess.TimeoutExpired as exc:
-        last_error = f"{_format_command(exc.cmd)} timed out after {COMMAND_TIMEOUTS['manager_show']}s"
+        last_error = (
+            f"{_format_command(exc.cmd)} timed out after "
+            f"{COMMAND_TIMEOUTS['manager_show']}s"
+        )
     except FileNotFoundError:
         raise
 
@@ -427,7 +487,15 @@ def list_datastores() -> List[str]:
     available or fails, returns an empty list so the caller can ask for manual input.
     """
     try:
-        cp = run_cmd(["proxmox-backup-manager", "datastore", "list", "--output-format", "json"])
+        cp = run_cmd(
+            [
+                "proxmox-backup-manager",
+                "datastore",
+                "list",
+                "--output-format",
+                "json",
+            ]
+        )
         if cp.stdout:
             try:
                 data = json.loads(cp.stdout)
@@ -435,7 +503,11 @@ def list_datastores() -> List[str]:
                     names: List[str] = []
                     for item in data:
                         if isinstance(item, dict):
-                            n = item.get("name") or item.get("datastore") or item.get("id")
+                            n = (
+                                item.get("name")
+                                or item.get("datastore")
+                                or item.get("id")
+                            )
                             if isinstance(n, str):
                                 names.append(n)
                     return sorted(set(names))
@@ -677,8 +749,15 @@ def _curses_popup(
         return None
 
     lines = body_lines[:]
-    content_width = max([len(title) + 2 if title else 0] + [len(line) for line in lines] + ([len(prompt)] if prompt else [0]))
-    width = max(32, min(w - 2, content_width + 4)) if w > 10 else max(10, w - 1)
+    title_width = len(title) + 2 if title else 0
+    line_widths = [len(line) for line in lines]
+    prompt_width = len(prompt) if prompt else 0
+    content_width = max([title_width] + line_widths + [prompt_width])
+    width = (
+        max(32, min(w - 2, content_width + 4))
+        if w > 10
+        else max(10, w - 1)
+    )
     body_space = max(1, (h - (4 if prompt else 3)))
     visible_lines = lines[:body_space]
     height = len(visible_lines) + (4 if prompt else 3)
@@ -773,7 +852,15 @@ def _curses_show_version(stdscr: object) -> None:
                 checksum_url=info.get("checksum_url"),
             )
             if ok:
-                _curses_popup(stdscr, "Update", [msg, "", "Please restart the program to use the new version."])
+                _curses_popup(
+                    stdscr,
+                    "Update",
+                    [
+                        msg,
+                        "",
+                        "Please restart the program to use the new version.",
+                    ],
+                )
                 sys.exit(0)
             else:
                 _curses_popup(stdscr, "Update", [msg])
@@ -797,7 +884,12 @@ def _curses_threads_dialog(stdscr: object, args) -> None:
         "Enter a number between 1 and 32.",
         "Leave blank to keep the current value.",
     ]
-    result = _curses_popup(stdscr, "Thread Settings", lines, prompt="New thread count: ")
+    result = _curses_popup(
+        stdscr,
+        "Thread Settings",
+        lines,
+        prompt="New thread count: ",
+    )
     if result is None:
         return
     if not result:
@@ -1029,8 +1121,15 @@ def _options_menu(args, stdscr: Optional[object]) -> None:
         _options_menu_text(args)
 
 
-def _prompt_select(prompt: str, options: List[str], allow_manual: bool = True) -> Optional[str]:
-    """Selection menu using curses (if available) with arrow keys + space. Falls back to numeric input."""
+def _prompt_select(
+    prompt: str,
+    options: List[str],
+    allow_manual: bool = True,
+) -> Optional[str]:
+    """Selection menu using curses when available.
+
+    Uses arrow keys and space, falls back to numeric input.
+    """
     if _want_curses_ui():
         while True:
             result = _curses_select_menu(prompt, options, allow_manual)
@@ -1100,7 +1199,10 @@ def _curses_choose_directory(base_path: str, feedback: str = "") -> Optional[str
             # build entries
             try:
                 subs = []
-                for p in sorted([p for p in current.iterdir() if p.is_dir()], key=lambda x: x.name.lower()):
+                for p in sorted(
+                    (p for p in current.iterdir() if p.is_dir()),
+                    key=lambda item: item.name.lower(),
+                ):
                     if p.name.startswith('.'):
                         continue
                     if p.name == ".chunks":
@@ -1222,7 +1324,11 @@ def _choose_directory(base_path: str) -> Optional[str]:
             res = _curses_choose_directory(base_path, feedback)
             if res == _CURSES_SENTINEL_MANUAL:
                 clear_console()
-                manual = input("Enter relative path from datastore (e.g. /ns/MyNamespace): ").strip()
+                manual_prompt = (
+                    "Enter relative path from datastore "
+                    "(e.g. /ns/MyNamespace): "
+                )
+                manual = input(manual_prompt).strip()
                 if manual:
                     manual = manual.lstrip("/")
                     abs_path = base / manual
@@ -1247,7 +1353,10 @@ def _choose_directory(base_path: str) -> Optional[str]:
         # List subdirs (skip hidden and .chunks by default)
         subs = []
         try:
-            for p in sorted([p for p in current.iterdir() if p.is_dir()], key=lambda x: x.name.lower()):
+            for p in sorted(
+                (p for p in current.iterdir() if p.is_dir()),
+                key=lambda item: item.name.lower(),
+            ):
                 if p.name.startswith('.'):
                     continue
                 if p.name == ".chunks":
@@ -1284,7 +1393,11 @@ def _choose_directory(base_path: str) -> Optional[str]:
             continue
         if choice == "m":
             clear_console()
-            manual = input("Enter relative path from datastore (e.g. /ns/MyNamespace): ").strip()
+            manual_prompt = (
+                "Enter relative path from datastore "
+                "(e.g. /ns/MyNamespace): "
+            )
+            manual = input(manual_prompt).strip()
             if manual:
                 manual = manual.lstrip("/")
                 abs_path = base / manual
@@ -1357,7 +1470,14 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
     """
     try:
         cp = run_cmd(
-            ["proxmox-backup-debug", "inspect", "file", "--output-format", "json", index_file],
+            [
+                "proxmox-backup-debug",
+                "inspect",
+                "file",
+                "--output-format",
+                "json",
+                index_file,
+            ],
             check=False,
             timeout=COMMAND_TIMEOUTS["debug_inspect"],
         )
@@ -1367,24 +1487,34 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
                 return parsed
         elif cp.returncode != 0 and cp.stderr:
             sys.stderr.write(
-                f"{ICONS['warning']} Warning: failed to inspect {index_file} (json): {cp.stderr.strip()}\n"
+                f"{ICONS['warning']} Warning: failed to inspect "
+                f"{index_file} (json): {cp.stderr.strip()}\n"
             )
     except subprocess.TimeoutExpired as exc:
         sys.stderr.write(
-            f"{ICONS['warning']} Warning: {_format_command(exc.cmd)} timed out while inspecting {index_file} (json).\n"
+            f"{ICONS['warning']} Warning: {_format_command(exc.cmd)} "
+            f"timed out while inspecting {index_file} (json).\n"
         )
     except FileNotFoundError:
         raise RuntimeError("Required command 'proxmox-backup-debug' not available.") from None
 
     try:
         cp_text = run_cmd(
-            ["proxmox-backup-debug", "inspect", "file", "--output-format", "text", index_file],
+            [
+                "proxmox-backup-debug",
+                "inspect",
+                "file",
+                "--output-format",
+                "text",
+                index_file,
+            ],
             check=False,
             timeout=COMMAND_TIMEOUTS["debug_inspect"],
         )
     except subprocess.TimeoutExpired as exc:
         sys.stderr.write(
-            f"{ICONS['warning']} Warning: {_format_command(exc.cmd)} timed out while inspecting {index_file} (text).\n"
+            f"{ICONS['warning']} Warning: {_format_command(exc.cmd)} "
+            f"timed out while inspecting {index_file} (text).\n"
         )
         return set()
     except FileNotFoundError:
@@ -1393,7 +1523,8 @@ def extract_chunks_from_file(index_file: str) -> Set[str]:
     if cp_text.returncode != 0:
         if cp_text.stderr:
             sys.stderr.write(
-                f"{ICONS['warning']} Warning: failed to inspect {index_file} (text): {cp_text.stderr.strip()}\n"
+                f"{ICONS['warning']} Warning: failed to inspect "
+                f"{index_file} (text): {cp_text.stderr.strip()}\n"
             )
         return set()
 
@@ -1476,7 +1607,10 @@ def analyze_search_path(
                 digests = fut.result()
                 digest_counter.update(digests)
             except Exception as e:
-                sys.stderr.write(f"\n{ICONS['warning']} Warning: failed to parse {futs[fut]}: {e}\n")
+                sys.stderr.write(
+                    f"\n{ICONS['warning']} Warning: failed to parse "
+                    f"{futs[fut]}: {e}\n"
+                )
             processed += 1
             elapsed_display = format_elapsed(time.time() - progress_start)
             prefix = f"{ICONS['index']} Index{label_suffix}"
@@ -1522,20 +1656,28 @@ def analyze_search_path(
                 if missing:
                     missing_count += 1
                     print(
-                        f"\r\033[K{ICONS['missing']} Missing: {chunk_path_for_digest(chunks_root, futs2[fut])}",
+                        f"\r\033[K{ICONS['missing']} Missing: "
+                        f"{chunk_path_for_digest(chunks_root, futs2[fut])}",
                         flush=True,
                     )
             except Exception as e:
-                sys.stderr.write(f"\n{ICONS['warning']} Warning: failed to stat chunk {futs2[fut]}: {e}\n")
+                sys.stderr.write(
+                    f"\n{ICONS['warning']} Warning: failed to stat chunk "
+                    f"{futs2[fut]}: {e}\n"
+                )
             summed += 1
             elapsed_display = format_elapsed(time.time() - progress_start)
             prefix = f"{ICONS['chunk']} Chunk{label_suffix}"
+            size_label = human_readable_size(unique_bytes)
+            extra = (
+                f"| {ICONS['total']} Size so far: {size_label} "
+                f"| {ICONS['timer']} {elapsed_display}"
+            )
             _progress_line(
                 prefix,
                 summed,
                 total_unique,
-                f"| {ICONS['total']} Size so far: {human_readable_size(unique_bytes)} "
-                f"| {ICONS['timer']} {elapsed_display}",
+                extra,
             )
 
     print()
@@ -1555,14 +1697,22 @@ def analyze_search_path(
 
 def print_usage_summary(result: UsageResult, elapsed_seconds: float) -> None:
     """Render the summary table for a UsageResult."""
-    print(f"{ICONS['total']} Total size: {result.unique_bytes} Bytes ({human_readable_size(result.unique_bytes)})")
+    total_human = human_readable_size(result.unique_bytes)
+    print(
+        f"{ICONS['total']} Total size: {result.unique_bytes} Bytes "
+        f"({total_human})"
+    )
 
     total_elapsed = format_elapsed(elapsed_seconds)
     print(f"{ICONS['timer']} Evaluation duration: {total_elapsed}")
 
     duplicate_count = result.total_references - result.unique_chunks
-    unique_percent = (result.unique_chunks / result.total_references * 100) if result.total_references else 0.0
-    duplicate_percent = 100.0 - unique_percent if result.total_references else 0.0
+    if result.total_references:
+        unique_percent = result.unique_chunks / result.total_references * 100
+        duplicate_percent = 100.0 - unique_percent
+    else:
+        unique_percent = 0.0
+        duplicate_percent = 0.0
     print(f"{ICONS['puzzle']} Chunk usage summary:")
     # Align summary values in table-like columns
     label_unique = "Unique chunks"
@@ -1584,13 +1734,19 @@ def print_usage_summary(result: UsageResult, elapsed_seconds: float) -> None:
     w_size = max(len(size_unique), len(size_dupe), len(size_total))
 
     print(
-        f"  {label_unique.ljust(w_label)} : {count_unique.rjust(w_count)}  {perc_unique.rjust(w_perc)} | {size_unique.rjust(w_size)}"
+        "  "
+        f"{label_unique.ljust(w_label)} : {count_unique.rjust(w_count)}  "
+        f"{perc_unique.rjust(w_perc)} | {size_unique.rjust(w_size)}"
     )
     print(
-        f"  {label_dupe.ljust(w_label)} : {count_dupe.rjust(w_count)}  {perc_dupe.rjust(w_perc)} | {size_dupe.rjust(w_size)}"
+        "  "
+        f"{label_dupe.ljust(w_label)} : {count_dupe.rjust(w_count)}  "
+        f"{perc_dupe.rjust(w_perc)} | {size_dupe.rjust(w_size)}"
     )
     print(
-        f"  {label_total.ljust(w_label)} : {count_total.rjust(w_count)}  {perc_total.rjust(w_perc)} | {size_total.rjust(w_size)}"
+        "  "
+        f"{label_total.ljust(w_label)} : {count_total.rjust(w_count)}  "
+        f"{perc_total.rjust(w_perc)} | {size_total.rjust(w_size)}"
     )
 
     if result.missing_chunks:
@@ -1612,7 +1768,10 @@ def discover_guest_paths(scan_root: Path) -> List[Path]:
             if not kind_dir.is_dir():
                 continue
             try:
-                entries = sorted([p for p in kind_dir.iterdir() if p.is_dir()], key=lambda p: p.name.lower())
+                entries = sorted(
+                    (p for p in kind_dir.iterdir() if p.is_dir()),
+                    key=lambda item: item.name.lower(),
+                )
             except PermissionError:
                 continue
             for child in entries:
@@ -1625,7 +1784,10 @@ def discover_guest_paths(scan_root: Path) -> List[Path]:
         ns_dir = base / "ns"
         if ns_dir.is_dir():
             try:
-                sub_ns = sorted([p for p in ns_dir.iterdir() if p.is_dir()], key=lambda p: p.name.lower())
+                sub_ns = sorted(
+                    (p for p in ns_dir.iterdir() if p.is_dir()),
+                    key=lambda item: item.name.lower(),
+                )
             except PermissionError:
                 sub_ns = []
             for ns in sub_ns:
@@ -1784,10 +1946,10 @@ def run_full_datastore_scan(
 # =============================================================================
 
 def _interactive_menu(args) -> Optional[Tuple[str, Optional[str], bool]]:
-    """Main interactive flow allowing datastore selection, path browsing, thread tweak, and version display.
+    """Interactive flow for datastore selection and analysis.
 
-    Returns (datastore_name, searchpath, full_datastore_scan) or None if user aborted.
-    Updates args.threads in-place when changed.
+    Returns (datastore_name, searchpath, full_datastore_scan) or None
+    if the user aborted. Updates args.threads in-place when changed.
     """
     header = "PBS_Chunk_Checker - Interactive Mode"
     datastore_name: Optional[str] = None
@@ -1814,14 +1976,22 @@ def _interactive_menu(args) -> Optional[Tuple[str, Optional[str], bool]]:
                 entries.append("Start")
             entries.append("Quit")
 
-            choice = _prompt_select(f"{header}\n\nSelect an option:", entries, allow_manual=False)
+            choice = _prompt_select(
+                f"{header}\n\nSelect an option:",
+                entries,
+                allow_manual=False,
+            )
             if choice is None:
                 return None
 
             if choice.startswith("Select datastore"):
                 stores = list_datastores()
                 if stores:
-                    ds = _prompt_select(f"{header}\n\nSelect datastore:", stores, allow_manual=True)
+                    ds = _prompt_select(
+                        f"{header}\n\nSelect datastore:",
+                        stores,
+                        allow_manual=True,
+                    )
                     if ds is None:
                         continue
                     if not DATASTORE_PATTERN.fullmatch(ds):
@@ -1836,7 +2006,10 @@ def _interactive_menu(args) -> Optional[Tuple[str, Optional[str], bool]]:
                         continue
                     except FileNotFoundError:
                         clear_console()
-                        print(f"{ICONS['error']} Error: required command 'proxmox-backup-manager' not available.")
+                        print(
+                            f"{ICONS['error']} Error: required command "
+                            "'proxmox-backup-manager' not available."
+                        )
                         input("Press Enter to continue...")
                         continue
                     datastore_name = ds
@@ -1858,7 +2031,10 @@ def _interactive_menu(args) -> Optional[Tuple[str, Optional[str], bool]]:
                         continue
                     except FileNotFoundError:
                         clear_console()
-                        print(f"{ICONS['error']} Error: required command 'proxmox-backup-manager' not available.")
+                        print(
+                            f"{ICONS['error']} Error: required command "
+                            "'proxmox-backup-manager' not available."
+                        )
                         input("Press Enter to continue...")
                         continue
                     datastore_name = ds
@@ -1873,13 +2049,21 @@ def _interactive_menu(args) -> Optional[Tuple[str, Optional[str], bool]]:
                     continue
                 except FileNotFoundError:
                     clear_console()
-                    print(f"{ICONS['error']} Error: required command 'proxmox-backup-manager' not available.")
+                    print(
+                        f"{ICONS['error']} Error: required command "
+                        "'proxmox-backup-manager' not available."
+                    )
                     input("Press Enter to continue...")
                     continue
                 abs_selected = _choose_directory(datastore_path)
                 if abs_selected is None:
                     continue
-                rel = "/" + str(Path(abs_selected).relative_to(datastore_path)) if abs_selected != datastore_path else "/"
+                rel = (
+                    "/"
+                    + str(Path(abs_selected).relative_to(datastore_path))
+                    if abs_selected != datastore_path
+                    else "/"
+                )
                 search_rel = rel
 
             elif choice == "Start":
@@ -1927,17 +2111,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     parser.add_argument(
         "--datastore",
-        help="Name of the PBS datastore where the object resides (e.g. MyDatastore).",
+        help=(
+            "Name of the PBS datastore where the object resides "
+            "(e.g. MyDatastore)."
+        ),
     )
     parser.add_argument(
         "--searchpath",
         dest="searchpath",
-        help="Object path inside the datastore (e.g. /ns/MyNamespace or /ns/MyNamespace/vm/100).",
+        help=(
+            "Object path inside the datastore "
+            "(e.g. /ns/MyNamespace or /ns/MyNamespace/vm/100)."
+        ),
     )
     parser.add_argument(
         "--all-guests",
         action="store_true",
-        help="Analyze the entire datastore and show per-guest usage (includes nested namespaces).",
+        help=(
+            "Analyze the entire datastore and show per-guest usage "
+            "(includes nested namespaces)."
+        ),
     )
     default_threads = min(32, (os.cpu_count() or 4) * 2)
     parser.add_argument(
@@ -1945,8 +2138,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         dest="threads",
         type=int,
         default=default_threads,
-        help="Number of parallel threads to use when parsing indexes and statting chunk files. "
-             "Defaults to 2× available CPUs (capped at 32).",
+        help=(
+            "Number of parallel threads to use when parsing indexes "
+            "and statting chunk files. Defaults to 2× available CPUs "
+            "(capped at 32)."
+        ),
     )
     # Backward compatibility alias
     parser.add_argument(
@@ -1974,7 +2170,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.threads <= 0:
         sys.stderr.write(
-            f"{ICONS['error']} Error: invalid thread count ({args.threads}). Using default value {default_threads}.\n"
+            f"{ICONS['error']} Error: invalid thread count "
+            f"({args.threads}). Using default value {default_threads}.\n"
         )
         args.threads = default_threads
 
@@ -1995,7 +2192,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     elif not args.all_guests and (
         (args.datastore and not args.searchpath) or (args.searchpath and not args.datastore)
     ):
-        parser.error("Either provide both --datastore and --searchpath, or none for interactive mode.")
+        parser.error(
+            "Either provide both --datastore and --searchpath, "
+            "or none for interactive mode."
+        )
 
     elif not DATASTORE_PATTERN.fullmatch(args.datastore or ""):
         sys.stderr.write(

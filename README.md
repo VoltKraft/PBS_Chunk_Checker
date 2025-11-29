@@ -1,4 +1,4 @@
-# PBS_Chunk_Checker (Python Edition)
+# PBS_Chunk_Checker
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](./LICENSE)
 
@@ -9,7 +9,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.8.0 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.8.1 (`./pbs_chunk_checker.py --version`)
 
 See full changes in `CHANGELOG.md`.
 
@@ -47,29 +47,29 @@ Clone or download the repository, then run the script with Python.
 
 Syntax (script mode):
 ```bash
-./PBS_Chunk_Checker.py --datastore <DATASTORE_NAME> --searchpath <SEARCH_PATH> [--threads N]
+./pbs_chunk_checker.py --datastore <DATASTORE_NAME> --searchpath <SEARCH_PATH> [--threads N]
 ```
 
 Examples:
 ```bash
 # Namespace summary
-./PBS_Chunk_Checker.py --datastore MyDatastore --searchpath /ns/MyNamespace
+./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace
 
 # VM inside a namespace
-./PBS_Chunk_Checker.py --datastore MyDatastore --searchpath /ns/MyNamespace/vm/100
+./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace/vm/100
 
 # Per-guest summary for a datastore (all namespaces)
-./PBS_Chunk_Checker.py --datastore MyDatastore --all-guests
+./pbs_chunk_checker.py --datastore MyDatastore --all-guests
 
 # Per-guest summary limited to one namespace (and its nested namespaces)
-./PBS_Chunk_Checker.py --datastore MyDatastore --searchpath /ns/MyNamespace --all-guests
+./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace --all-guests
 ```
 
 ### Interactive mode
 Run without parameters to open a menu for selecting the datastore and the search path:
 
 ```bash
-./PBS_Chunk_Checker.py
+./pbs_chunk_checker.py
 ```
 
 In interactive mode you can:
@@ -111,13 +111,13 @@ Stream the script from GitHub and execute it immediately.
 Script mode example:
 
 ```bash
-wget -q -O - https://raw.githubusercontent.com/VoltKraft/PBS_Chunk_Checker/main/PBS_Chunk_Checker.py | python3 - --datastore MyDatastore --searchpath /ns/MyNamespace
+wget -q -O - https://raw.githubusercontent.com/VoltKraft/PBS_Chunk_Checker/main/pbs_chunk_checker.py | python3 - --datastore MyDatastore --searchpath /ns/MyNamespace
 ```
 
 Interactive mode example:
 
 ```bash
-wget -q -O - https://raw.githubusercontent.com/VoltKraft/PBS_Chunk_Checker/main/PBS_Chunk_Checker.py | python3 -
+wget -q -O - https://raw.githubusercontent.com/VoltKraft/PBS_Chunk_Checker/main/pbs_chunk_checker.py | python3 -
 ```
 
 Notes:
@@ -141,7 +141,7 @@ Notes:
 
 ## 🔄 Update (Releases)
 
-In the interactive menus, press `v` (Version) to see the current version. While opening this menu, the script checks in the background for a newer release on GitHub. If one is available, you will be offered to update automatically. The script downloads the latest `PBS_Chunk_Checker.py` and replaces the current file atomically (a `.bak` backup is kept next to it). Restart the script to use the new version.
+In the interactive menus, press `v` (Version) to see the current version. While opening this menu, the script checks in the background for a newer release on GitHub. If one is available, you will be offered to update automatically. The script downloads the latest `pbs_chunk_checker.py` and replaces the current file atomically (a `.bak` backup is kept next to it). Restart the script to use the new version.
 
 You can now also use `--update` on the command line to perform the same check-and-offer flow without entering the interactive menus. This prints the current version, queries GitHub Releases, and — if a newer version exists — asks whether to update.
 
@@ -149,6 +149,7 @@ Notes:
 - The update mechanism uses GitHub Releases. If no dedicated asset is attached, it falls back to the tagged raw file.
 - When a `.sha256` checksum asset is published with a release, the script verifies the downloaded file before replacing the current version.
 - Network errors or rate limits will be reported and do not affect normal operation.
+- If you are updating from a version where the script file was still named `PBS_Chunk_Checker.py`, consider renaming it once manually to `pbs_chunk_checker.py` after the update so that your local copy matches the new release naming.
 
 ---
 
