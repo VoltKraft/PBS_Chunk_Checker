@@ -1601,8 +1601,8 @@ def print_usage_summary(result: UsageResult, elapsed_seconds: float) -> None:
 # Datastore-wide guest discovery and confirmation
 # =============================================================================
 
-def discover_guest_paths(datastore_root: Path) -> List[Path]:
-    """Return all VM/CT directories under the datastore, including nested namespaces."""
+def discover_guest_paths(scan_root: Path) -> List[Path]:
+    """Return all VM/CT directories under the scan_root, including nested namespaces."""
     guests: List[Path] = []
     seen: Set[Path] = set()
 
@@ -1633,7 +1633,7 @@ def discover_guest_paths(datastore_root: Path) -> List[Path]:
                     continue
                 _scan(ns)
 
-    _scan(datastore_root)
+    _scan(scan_root)
     return guests
 
 
@@ -1688,7 +1688,10 @@ def _format_guest_label(datastore_root: Path, guest_path: Path) -> str:
     return "/" + str(rel)
 
 
-def print_full_datastore_summary(results: List[Tuple[str, UsageResult]]) -> None:
+def print_full_datastore_summary(
+    results: List[Tuple[str, UsageResult]],
+    title: str = "Per-guest summary (sorted by size)",
+) -> None:
     """Print the final overview sorted by size."""
     if not results:
         return
@@ -1697,7 +1700,7 @@ def print_full_datastore_summary(results: List[Tuple[str, UsageResult]]) -> None
     width_label = max(len(label) for label, _ in sorted_results)
     width_size = max(len(human_readable_size(res.unique_bytes)) for _, res in sorted_results)
 
-    print(f"{ICONS['total']} Per-guest summary (sorted by size):")
+    print(f"{ICONS['total']} {title}:")
     for label, res in sorted_results:
         size_h = human_readable_size(res.unique_bytes)
         note = ""
@@ -1718,11 +1721,14 @@ def run_full_datastore_scan(
     datastore_root: Path,
     chunks_root: Path,
     args,
+    scan_root: Optional[Path] = None,
     require_confirmation: bool = True,
 ) -> int:
     """Analyze every VM/CT under the datastore and print a size overview."""
-    guests = discover_guest_paths(datastore_root)
+    root = scan_root if scan_root is not None else datastore_root
+    guests = discover_guest_paths(root)
     guests = sorted(guests, key=lambda p: str(p).lower())
+    guest_labels = [_format_guest_label(datastore_root, p) for p in guests]
 
     if not guests:
         print(f"{ICONS['info']} No VM/CT directories found in this datastore.")
@@ -1737,6 +1743,8 @@ def run_full_datastore_scan(
     print(f"{ICONS['folder']} Path to datastore: {datastore_root}")
     print(f"{ICONS['chunk']} Chunk path: {chunks_root}")
     print(f"{ICONS['threads']} Threads: {args.threads}")
+    scope_label = _format_guest_label(datastore_root, root) if root != datastore_root else "/"
+    print(f"{ICONS['folder']} Scan root: {scope_label}")
     print(f"{ICONS['folder']} Guests to analyze: {len(guests)}")
 
     overall_start = time.time()
@@ -1744,7 +1752,7 @@ def run_full_datastore_scan(
     total_guests = len(guests)
 
     for idx, guest_path in enumerate(guests, 1):
-        label = _format_guest_label(datastore_root, guest_path)
+        label = guest_labels[idx - 1]
         print(f"\n{ICONS['folder']} [{idx}/{total_guests}] {label}")
         guest_start = time.time()
         result = analyze_search_path(
@@ -1801,7 +1809,7 @@ def _interactive_menu(args) -> Optional[Tuple[str, Optional[str], bool]]:
             if datastore_name:
                 sp_label = search_rel or "/"
                 entries.append(f"Choose search path [{sp_label}]")
-                entries.append("Scan entire datastore (all guests)")
+                entries.append(f"Scan all guests [{sp_label}]")
             if datastore_name and search_rel:
                 entries.append("Start")
             entries.append("Quit")
@@ -1878,11 +1886,11 @@ def _interactive_menu(args) -> Optional[Tuple[str, Optional[str], bool]]:
                 if datastore_name and search_rel:
                     return datastore_name, search_rel, False
 
-            elif choice.startswith("Scan entire datastore"):
+            elif choice.startswith("Scan all guests"):
                 if not datastore_name:
                     continue
                 if confirm_full_datastore_scan():
-                    return datastore_name, None, True
+                    return datastore_name, (search_rel or "/"), True
 
             elif choice == "Quit":
                 return None
@@ -1971,11 +1979,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.threads = default_threads
 
     # ----- Interactive mode detection -----
-    full_scan_confirmed = False
     interactive = not args.datastore and not args.searchpath and not args.all_guests
-
-    if args.searchpath and args.all_guests:
-        parser.error("--searchpath cannot be used together with --all-guests.")
 
     if interactive:
         res = _interactive_menu(args)
@@ -1983,7 +1987,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("Aborted.")
             return 130
         args.datastore, args.searchpath, args.all_guests = res
-        full_scan_confirmed = args.all_guests
         clear_console()
 
     elif args.all_guests and not args.datastore:
@@ -2023,10 +2026,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     chunks_root = datastore_root / ".chunks"
 
     if args.all_guests:
+        try:
+            search_path_obj = resolve_search_path(str(datastore_root), args.searchpath or "/")
+        except ValueError as exc:
+            sys.stderr.write(f"{ICONS['error']} Error: {exc}\n")
+            return 1
+        if not search_path_obj.is_dir():
+            sys.stderr.write(f"{ICONS['error']} Error: folder does not exist → {search_path_obj}\n")
+            return 1
         return run_full_datastore_scan(
             datastore_root,
             chunks_root,
             args,
+            scan_root=search_path_obj,
             require_confirmation=False,
         )
 

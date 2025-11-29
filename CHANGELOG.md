@@ -2,6 +2,8 @@
 
 - 2.8.0
   - Add an `--all-guests` mode and interactive option to scan the entire datastore (all namespaces) and list every VM/CT by size with a sortable overview.
+  - Allow scoping the all-guests scan to a specific namespace via `--searchpath` or the interactive path selector.
+  - Show live per-guest list and running summary while guests are being processed.
   - Show a confirmation prompt before starting the datastore-wide scan because it can take a long time.
 - 2.7.2
   - Rename CLI flag `--check-updates` to `--update`.
