@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.7.2"
+__version__ = "2.8.0"
 
 import argparse
 import concurrent.futures as futures
@@ -32,7 +32,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict, Callable
+from typing import Iterable, Iterator, Optional, Sequence, Set, Tuple, List, Dict, Callable, NamedTuple
 from collections import Counter
 import urllib.request
 import urllib.error
@@ -1433,13 +1433,360 @@ def _progress_line(prefix: str, i: int, total: int, extra: str = "") -> None:
 
 
 # =============================================================================
+# Chunk analysis driver
+# =============================================================================
+
+class UsageResult(NamedTuple):
+    """Container for chunk usage statistics."""
+    index_files: int
+    unique_chunks: int
+    total_references: int
+    unique_bytes: int
+    duplicate_bytes: int
+    missing_chunks: int
+    elapsed: float
+
+
+def analyze_search_path(
+    search_path_obj: Path,
+    chunks_root: Path,
+    threads: int,
+    timer_base: Optional[float] = None,
+    progress_label: str = "",
+) -> UsageResult:
+    """Analyze a single search path and return usage statistics."""
+    analysis_start = time.time()
+    progress_start = timer_base if timer_base is not None else analysis_start
+    label_suffix = f" [{progress_label.strip()}]" if progress_label.strip() else ""
+
+    index_files = find_index_files(str(search_path_obj))
+    total_files = len(index_files)
+    if total_files == 0:
+        print(f"{ICONS['info']} No index files (*.fidx/*.didx) found.")
+        return UsageResult(0, 0, 0, 0, 0, 0, time.time() - analysis_start)
+
+    print(f"\n{ICONS['save']} Saving all used chunks{label_suffix}")
+
+    digest_counter = Counter()
+    processed = 0
+    with futures.ThreadPoolExecutor(max_workers=threads) as pool:
+        futs = {pool.submit(extract_chunks_from_file, f): f for f in index_files}
+        for fut in futures.as_completed(futs):
+            try:
+                digests = fut.result()
+                digest_counter.update(digests)
+            except Exception as e:
+                sys.stderr.write(f"\n{ICONS['warning']} Warning: failed to parse {futs[fut]}: {e}\n")
+            processed += 1
+            elapsed_display = format_elapsed(time.time() - progress_start)
+            prefix = f"{ICONS['index']} Index{label_suffix}"
+            _progress_line(
+                prefix,
+                processed,
+                total_files,
+                f"| {ICONS['timer']} {elapsed_display}",
+            )
+
+    print()
+
+    chunk_counter_total = sum(digest_counter.values())
+    total_unique = len(digest_counter)
+
+    if total_unique == 0:
+        print(f"{ICONS['info']} No chunks referenced. Nothing to sum.")
+        elapsed_total = time.time() - analysis_start
+        return UsageResult(total_files, 0, chunk_counter_total, 0, 0, 0, elapsed_total)
+
+    print(f"{ICONS['sum']} Summing up chunks{label_suffix}")
+
+    missing_count = 0
+    unique_bytes = 0
+    duplicate_bytes = 0
+    summed = 0
+
+    def _stat_one(digest: str) -> Tuple[int, bool]:
+        path = chunk_path_for_digest(chunks_root, digest)
+        size = stat_size_if_exists(path)
+        missing = (size == 0 and not path.exists())
+        return size, missing
+
+    with futures.ThreadPoolExecutor(max_workers=threads) as pool:
+        futs2 = {pool.submit(_stat_one, d): d for d in digest_counter.keys()}
+        for fut in futures.as_completed(futs2):
+            try:
+                size, missing = fut.result()
+                unique_bytes += size
+                occurrences = digest_counter[futs2[fut]]
+                if occurrences > 1 and size:
+                    duplicate_bytes += size * (occurrences - 1)
+                if missing:
+                    missing_count += 1
+                    print(
+                        f"\r\033[K{ICONS['missing']} Missing: {chunk_path_for_digest(chunks_root, futs2[fut])}",
+                        flush=True,
+                    )
+            except Exception as e:
+                sys.stderr.write(f"\n{ICONS['warning']} Warning: failed to stat chunk {futs2[fut]}: {e}\n")
+            summed += 1
+            elapsed_display = format_elapsed(time.time() - progress_start)
+            prefix = f"{ICONS['chunk']} Chunk{label_suffix}"
+            _progress_line(
+                prefix,
+                summed,
+                total_unique,
+                f"| {ICONS['total']} Size so far: {human_readable_size(unique_bytes)} "
+                f"| {ICONS['timer']} {elapsed_display}",
+            )
+
+    print()
+    print("\033[2K", end="")
+
+    elapsed_total = time.time() - analysis_start
+    return UsageResult(
+        total_files,
+        total_unique,
+        chunk_counter_total,
+        unique_bytes,
+        duplicate_bytes,
+        missing_count,
+        elapsed_total,
+    )
+
+
+def print_usage_summary(result: UsageResult, elapsed_seconds: float) -> None:
+    """Render the summary table for a UsageResult."""
+    print(f"{ICONS['total']} Total size: {result.unique_bytes} Bytes ({human_readable_size(result.unique_bytes)})")
+
+    total_elapsed = format_elapsed(elapsed_seconds)
+    print(f"{ICONS['timer']} Evaluation duration: {total_elapsed}")
+
+    duplicate_count = result.total_references - result.unique_chunks
+    unique_percent = (result.unique_chunks / result.total_references * 100) if result.total_references else 0.0
+    duplicate_percent = 100.0 - unique_percent if result.total_references else 0.0
+    print(f"{ICONS['puzzle']} Chunk usage summary:")
+    # Align summary values in table-like columns
+    label_unique = "Unique chunks"
+    label_dupe = "Duplicate refs"
+    label_total = "Total references"
+    count_unique = f"{result.unique_chunks}"
+    count_dupe = f"{duplicate_count}"
+    count_total = f"{result.total_references}"
+    perc_unique = f"{unique_percent:.2f}%"
+    perc_dupe = f"{duplicate_percent:.2f}%"
+    perc_total = ""  # no percentage for total references
+    size_unique = human_readable_size(result.unique_bytes)
+    size_dupe = human_readable_size(result.duplicate_bytes)
+    size_total = human_readable_size(result.unique_bytes + result.duplicate_bytes)
+
+    w_label = max(len(label_unique), len(label_dupe), len(label_total))
+    w_count = max(len(count_unique), len(count_dupe), len(count_total))
+    w_perc = max(len(perc_unique), len(perc_dupe), len(perc_total))
+    w_size = max(len(size_unique), len(size_dupe), len(size_total))
+
+    print(
+        f"  {label_unique.ljust(w_label)} : {count_unique.rjust(w_count)}  {perc_unique.rjust(w_perc)} | {size_unique.rjust(w_size)}"
+    )
+    print(
+        f"  {label_dupe.ljust(w_label)} : {count_dupe.rjust(w_count)}  {perc_dupe.rjust(w_perc)} | {size_dupe.rjust(w_size)}"
+    )
+    print(
+        f"  {label_total.ljust(w_label)} : {count_total.rjust(w_count)}  {perc_total.rjust(w_perc)} | {size_total.rjust(w_size)}"
+    )
+
+    if result.missing_chunks:
+        print(f"{ICONS['warning']} Missing chunk files: {result.missing_chunks}")
+
+
+# =============================================================================
+# Datastore-wide guest discovery and confirmation
+# =============================================================================
+
+def discover_guest_paths(scan_root: Path) -> List[Path]:
+    """Return all VM/CT directories under the scan_root, including nested namespaces."""
+    guests: List[Path] = []
+    seen: Set[Path] = set()
+
+    def _scan(base: Path) -> None:
+        for kind in ("vm", "ct"):
+            kind_dir = base / kind
+            if not kind_dir.is_dir():
+                continue
+            try:
+                entries = sorted([p for p in kind_dir.iterdir() if p.is_dir()], key=lambda p: p.name.lower())
+            except PermissionError:
+                continue
+            for child in entries:
+                if child.name.startswith("."):
+                    continue
+                resolved = child.resolve()
+                if resolved not in seen:
+                    seen.add(resolved)
+                    guests.append(resolved)
+        ns_dir = base / "ns"
+        if ns_dir.is_dir():
+            try:
+                sub_ns = sorted([p for p in ns_dir.iterdir() if p.is_dir()], key=lambda p: p.name.lower())
+            except PermissionError:
+                sub_ns = []
+            for ns in sub_ns:
+                if ns.name.startswith("."):
+                    continue
+                _scan(ns)
+
+    _scan(scan_root)
+    return guests
+
+
+def _confirm_full_datastore_scan_text(clear_screen: bool = True) -> bool:
+    """Text-mode confirmation for the full datastore scan."""
+    if clear_screen:
+        clear_console()
+    print("PBS_Chunk_Checker - Full datastore scan\n")
+    print("This will traverse every namespace (including nested ones)")
+    print("and analyze each VM and CT individually.")
+    print("Depending on the datastore size this can take a long time.\n")
+    answer = input("Proceed anyway? [y/N]: ").strip().lower()
+    return answer.startswith("y")
+
+
+def confirm_full_datastore_scan(allow_curses: bool = True, clear_screen_text: bool = True) -> bool:
+    """Ask the user to confirm a full datastore scan, optionally via curses popup."""
+    lines = [
+        "Scan the entire datastore:",
+        "- All namespaces (and nested namespaces) will be traversed.",
+        "- Every VM and CT will be analyzed individually.",
+        "",
+        "Depending on the datastore size this can take a long time.",
+    ]
+    prompt = "Proceed anyway? [y/N]"
+
+    if allow_curses and _want_curses_ui() and curses is not None:
+        try:
+            def _render(stdscr: object) -> bool:
+                choice = _curses_popup(
+                    stdscr,
+                    "Full datastore scan",
+                    lines + [prompt],
+                    prompt="> ",
+                )
+                return bool(choice and choice.strip().lower().startswith("y"))
+
+            res = curses.wrapper(_render)  # type: ignore[attr-defined]
+            return bool(res)
+        except Exception:
+            pass
+
+    return _confirm_full_datastore_scan_text(clear_screen=clear_screen_text)
+
+
+def _format_guest_label(datastore_root: Path, guest_path: Path) -> str:
+    """Return the datastore-relative label for a guest path."""
+    try:
+        rel = guest_path.relative_to(datastore_root)
+    except ValueError:
+        return str(guest_path)
+    return "/" + str(rel)
+
+
+def print_full_datastore_summary(
+    results: List[Tuple[str, UsageResult]],
+    title: str = "Per-guest summary (sorted by size)",
+) -> None:
+    """Print the final overview sorted by size."""
+    if not results:
+        return
+
+    sorted_results = sorted(results, key=lambda pair: pair[1].unique_bytes, reverse=True)
+    width_label = max(len(label) for label, _ in sorted_results)
+    width_size = max(len(human_readable_size(res.unique_bytes)) for _, res in sorted_results)
+
+    print(f"{ICONS['total']} {title}:")
+    for label, res in sorted_results:
+        size_h = human_readable_size(res.unique_bytes)
+        note = ""
+        if res.index_files == 0:
+            note = "no index files"
+        elif res.unique_chunks == 0:
+            note = "no chunks"
+        line = (
+            f"  {label.ljust(width_label)} : {size_h.rjust(width_size)} "
+            f"({res.unique_bytes} B)"
+        )
+        if note:
+            line += f"  [{note}]"
+        print(line)
+
+
+def run_full_datastore_scan(
+    datastore_root: Path,
+    chunks_root: Path,
+    args,
+    scan_root: Optional[Path] = None,
+    require_confirmation: bool = True,
+) -> int:
+    """Analyze every VM/CT under the datastore and print a size overview."""
+    root = scan_root if scan_root is not None else datastore_root
+    guests = discover_guest_paths(root)
+    guests = sorted(guests, key=lambda p: str(p).lower())
+    guest_labels = [_format_guest_label(datastore_root, p) for p in guests]
+
+    if not guests:
+        print(f"{ICONS['info']} No VM/CT directories found in this datastore.")
+        return 0
+
+    if require_confirmation:
+        if not confirm_full_datastore_scan():
+            print("Aborted.")
+            return 130
+        clear_console()
+
+    print(f"{ICONS['folder']} Path to datastore: {datastore_root}")
+    print(f"{ICONS['chunk']} Chunk path: {chunks_root}")
+    print(f"{ICONS['threads']} Threads: {args.threads}")
+    scope_label = _format_guest_label(datastore_root, root) if root != datastore_root else "/"
+    print(f"{ICONS['folder']} Scan root: {scope_label}")
+    print(f"{ICONS['folder']} Guests to analyze: {len(guests)}")
+
+    overall_start = time.time()
+    results: List[Tuple[str, UsageResult]] = []
+    total_guests = len(guests)
+
+    for idx, guest_path in enumerate(guests, 1):
+        label = guest_labels[idx - 1]
+        print(f"\n{ICONS['folder']} [{idx}/{total_guests}] {label}")
+        guest_start = time.time()
+        result = analyze_search_path(
+            guest_path,
+            chunks_root,
+            args.threads,
+            timer_base=guest_start,
+            progress_label=f"{idx}/{total_guests} {label}",
+        )
+        results.append((label, result))
+        if result.index_files == 0:
+            print(f"{ICONS['info']} No index files (*.fidx/*.didx) found for {label}.")
+            continue
+        if result.unique_chunks == 0:
+            print(f"{ICONS['info']} No chunks referenced for {label}.")
+            continue
+
+        print_usage_summary(result, time.time() - guest_start)
+
+    print()
+    print_full_datastore_summary(results)
+    total_elapsed = format_elapsed(time.time() - overall_start)
+    print(f"{ICONS['timer']} Full datastore scan duration: {total_elapsed}")
+    return 0
+
+
+# =============================================================================
 # Interactive main menu flow
 # =============================================================================
 
-def _interactive_menu(args) -> Optional[Tuple[str, str]]:
+def _interactive_menu(args) -> Optional[Tuple[str, Optional[str], bool]]:
     """Main interactive flow allowing datastore selection, path browsing, thread tweak, and version display.
 
-    Returns (datastore_name, searchpath) or None if user aborted.
+    Returns (datastore_name, searchpath, full_datastore_scan) or None if user aborted.
     Updates args.threads in-place when changed.
     """
     header = "PBS_Chunk_Checker - Interactive Mode"
@@ -1462,6 +1809,7 @@ def _interactive_menu(args) -> Optional[Tuple[str, str]]:
             if datastore_name:
                 sp_label = search_rel or "/"
                 entries.append(f"Choose search path [{sp_label}]")
+                entries.append(f"Scan all guests [{sp_label}]")
             if datastore_name and search_rel:
                 entries.append("Start")
             entries.append("Quit")
@@ -1536,7 +1884,13 @@ def _interactive_menu(args) -> Optional[Tuple[str, str]]:
 
             elif choice == "Start":
                 if datastore_name and search_rel:
-                    return datastore_name, search_rel
+                    return datastore_name, search_rel, False
+
+            elif choice.startswith("Scan all guests"):
+                if not datastore_name:
+                    continue
+                if confirm_full_datastore_scan():
+                    return datastore_name, (search_rel or "/"), True
 
             elif choice == "Quit":
                 return None
@@ -1580,6 +1934,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         dest="searchpath",
         help="Object path inside the datastore (e.g. /ns/MyNamespace or /ns/MyNamespace/vm/100).",
     )
+    parser.add_argument(
+        "--all-guests",
+        action="store_true",
+        help="Analyze the entire datastore and show per-guest usage (includes nested namespaces).",
+    )
     default_threads = min(32, (os.cpu_count() or 4) * 2)
     parser.add_argument(
         "--threads",
@@ -1620,17 +1979,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.threads = default_threads
 
     # ----- Interactive mode detection -----
-    interactive = not args.datastore and not args.searchpath
-    if (args.datastore and not args.searchpath) or (args.searchpath and not args.datastore):
-        parser.error("Either provide both --datastore and --searchpath, or none for interactive mode.")
+    interactive = not args.datastore and not args.searchpath and not args.all_guests
 
     if interactive:
         res = _interactive_menu(args)
         if res is None:
             print("Aborted.")
             return 130
-        args.datastore, args.searchpath = res
+        args.datastore, args.searchpath, args.all_guests = res
         clear_console()
+
+    elif args.all_guests and not args.datastore:
+        parser.error("--datastore is required when using --all-guests.")
+
+    elif not args.all_guests and (
+        (args.datastore and not args.searchpath) or (args.searchpath and not args.datastore)
+    ):
+        parser.error("Either provide both --datastore and --searchpath, or none for interactive mode.")
 
     elif not DATASTORE_PATTERN.fullmatch(args.datastore or ""):
         sys.stderr.write(
@@ -1658,13 +2023,31 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         return 1
 
+    chunks_root = datastore_root / ".chunks"
+
+    if args.all_guests:
+        try:
+            search_path_obj = resolve_search_path(str(datastore_root), args.searchpath or "/")
+        except ValueError as exc:
+            sys.stderr.write(f"{ICONS['error']} Error: {exc}\n")
+            return 1
+        if not search_path_obj.is_dir():
+            sys.stderr.write(f"{ICONS['error']} Error: folder does not exist → {search_path_obj}\n")
+            return 1
+        return run_full_datastore_scan(
+            datastore_root,
+            chunks_root,
+            args,
+            scan_root=search_path_obj,
+            require_confirmation=False,
+        )
+
     try:
         search_path_obj = resolve_search_path(str(datastore_root), args.searchpath or "/")
     except ValueError as exc:
         sys.stderr.write(f"{ICONS['error']} Error: {exc}\n")
         return 1
 
-    chunks_root = datastore_root / ".chunks"
     search_path = str(search_path_obj)
 
     print(f"{ICONS['folder']} Path to datastore: {datastore_root}")
@@ -1676,128 +2059,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sys.stderr.write(f"{ICONS['error']} Error: folder does not exist → {search_path}\n")
         return 1
 
-    # ----- Locate index files (didx/fidx) -----
-    index_files = find_index_files(search_path)
-    total_files = len(index_files)
-    if total_files == 0:
-        print(f"{ICONS['info']} No index files (*.fidx/*.didx) found.")
-        return 0
-         
-    print(f"\n{ICONS['save']} Saving all used chunks")
-
-    # ----- Extract referenced chunks from index files -----
-    digest_counter = Counter()
-    processed = 0
-    with futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
-        futs = {pool.submit(extract_chunks_from_file, f): f for f in index_files}
-        for fut in futures.as_completed(futs):
-            try:
-                digests = fut.result()
-                digest_counter.update(digests)
-            except Exception as e:
-                sys.stderr.write(f"\n{ICONS['warning']} Warning: failed to parse {futs[fut]}: {e}\n")
-            processed += 1
-            elapsed_display = format_elapsed(time.time() - start_ts)
-            _progress_line(
-                f"{ICONS['index']} Index",
-                processed,
-                total_files,
-                f"| {ICONS['timer']} {elapsed_display}",
-            )
-
-    print()
-
-    chunk_counter_total = sum(digest_counter.values())
-    total_unique = len(digest_counter)
-
-    if total_unique == 0:
-        print(f"{ICONS['info']} No chunks referenced. Nothing to sum.")
+    result = analyze_search_path(search_path_obj, chunks_root, args.threads, timer_base=start_ts)
+    if result.index_files == 0 or result.unique_chunks == 0:
         return 0
 
-    # ----- Sum chunk files under .chunks -----
-    print(f"{ICONS['sum']} Summing up chunks")
-
-    missing_count = 0
-    summed = 0
-    unique_bytes = 0
-    duplicate_bytes = 0
-
-    def _stat_one(digest: str) -> Tuple[int, bool]:
-        path = chunk_path_for_digest(chunks_root, digest)
-        size = stat_size_if_exists(path)
-        missing = (size == 0 and not path.exists())
-        return size, missing
-
-    with futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
-        futs2 = {pool.submit(_stat_one, d): d for d in digest_counter.keys()}
-        for fut in futures.as_completed(futs2):
-            try:
-                size, missing = fut.result()
-                unique_bytes += size
-                occurrences = digest_counter[futs2[fut]]
-                if occurrences > 1 and size:
-                    duplicate_bytes += size * (occurrences - 1)
-                if missing:
-                    missing_count += 1
-                    print(
-                        f"\r\033[K{ICONS['missing']} Missing: {chunk_path_for_digest(chunks_root, futs2[fut])}",
-                        flush=True,
-                    )
-            except Exception as e:
-                sys.stderr.write(f"\n{ICONS['warning']} Warning: failed to stat chunk {futs2[fut]}: {e}\n")
-            summed += 1
-            elapsed_display = format_elapsed(time.time() - start_ts)
-            _progress_line(
-                f"{ICONS['chunk']} Chunk",
-                summed,
-                total_unique,
-                f"| {ICONS['total']} Size so far: {human_readable_size(unique_bytes)} "
-                f"| {ICONS['timer']} {elapsed_display}",
-            )
-
-    print()
-    print("\033[2K", end="")
-
-    print(f"{ICONS['total']} Total size: {unique_bytes} Bytes ({human_readable_size(unique_bytes)})")
-
-    total_elapsed = format_elapsed(time.time() - start_ts)
-    print(f"{ICONS['timer']} Evaluation duration: {total_elapsed}")
-
-    duplicate_count = chunk_counter_total - total_unique
-    unique_percent = (total_unique / chunk_counter_total * 100) if chunk_counter_total else 0.0
-    duplicate_percent = 100.0 - unique_percent if chunk_counter_total else 0.0
-    print(f"{ICONS['puzzle']} Chunk usage summary:")
-    # Align summary values in table-like columns
-    label_unique = "Unique chunks"
-    label_dupe = "Duplicate refs"
-    label_total = "Total references"
-    count_unique = f"{total_unique}"
-    count_dupe = f"{duplicate_count}"
-    count_total = f"{chunk_counter_total}"
-    perc_unique = f"{unique_percent:.2f}%"
-    perc_dupe = f"{duplicate_percent:.2f}%"
-    perc_total = ""  # no percentage for total references
-    size_unique = human_readable_size(unique_bytes)
-    size_dupe = human_readable_size(duplicate_bytes)
-    size_total = human_readable_size(unique_bytes + duplicate_bytes)
-
-    w_label = max(len(label_unique), len(label_dupe), len(label_total))
-    w_count = max(len(count_unique), len(count_dupe), len(count_total))
-    w_perc = max(len(perc_unique), len(perc_dupe), len(perc_total))
-    w_size = max(len(size_unique), len(size_dupe), len(size_total))
-
-    print(
-        f"  {label_unique.ljust(w_label)} : {count_unique.rjust(w_count)}  {perc_unique.rjust(w_perc)} | {size_unique.rjust(w_size)}"
-    )
-    print(
-        f"  {label_dupe.ljust(w_label)} : {count_dupe.rjust(w_count)}  {perc_dupe.rjust(w_perc)} | {size_dupe.rjust(w_size)}"
-    )
-    print(
-        f"  {label_total.ljust(w_label)} : {count_total.rjust(w_count)}  {perc_total.rjust(w_perc)} | {size_total.rjust(w_size)}"
-    )
-
-    if missing_count:
-        print(f"{ICONS['warning']} Missing chunk files: {missing_count}")
+    print_usage_summary(result, time.time() - start_ts)
 
     return 0
 
