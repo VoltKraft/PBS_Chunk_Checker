@@ -9,7 +9,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.7.2 (`./PBS_Chunk_Checker.py --version`)
+**Current version:** 2.8.0 (`./PBS_Chunk_Checker.py --version`)
 
 See full changes in `CHANGELOG.md`.
 
@@ -57,6 +57,9 @@ Examples:
 
 # VM inside a namespace
 ./PBS_Chunk_Checker.py --datastore MyDatastore --searchpath /ns/MyNamespace/vm/100
+
+# Per-guest summary for a datastore (all namespaces)
+./PBS_Chunk_Checker.py --datastore MyDatastore --all-guests
 ```
 
 ### Interactive mode
@@ -69,7 +72,9 @@ Run without parameters to open a menu for selecting the datastore and the search
 In interactive mode you can:
 - Select an existing datastore from the list or enter one manually
 - Navigate the datastore directory structure and choose the search path (or enter it manually)
+- Scan the entire datastore (all namespaces) to get a per-guest size overview, sorted by usage
 - Open the Options overlay (press `o`) to adjust threads and toggle emoji output
+- When starting the full datastore scan you will see a warning and must confirm with `Proceed anyway? [y/N]` (English prompt) because the run can take a long time.
 
 Interactive controls (TUI):
 - Use Up/Down arrows (or j/k) to move
@@ -123,6 +128,7 @@ Notes:
 |--------|-------------|-------------|---------|
 | `--datastore` | Required (script mode) | PBS datastore name that contains the object you want to analyse | — |
 | `--searchpath` | Required (script mode) | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
+| `--all-guests` | Optional | Scan the entire datastore (all namespaces) and print a per-guest size summary (requires `--datastore`) | — |
 | `--threads` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
 | `--no-emoji` | Optional | Replace emoji icons in CLI output with ASCII labels | Emoji output |
 | `--version` | Optional | Show the script version and exit | — |
