@@ -9,7 +9,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.9.0 (`./pbs_chunk_checker.py --version`)
+**Current version:** 2.10.0 (`./pbs_chunk_checker.py --version`)
 
 See full changes in `CHANGELOG.md`.
 
@@ -61,6 +61,9 @@ Examples:
 # Per-guest summary for a datastore (all namespaces)
 ./pbs_chunk_checker.py --datastore MyDatastore --all-guests
 
+# Per-guest summary with CSV output directory
+./pbs_chunk_checker.py --datastore MyDatastore --all-guests --csv-dir /tmp/pbs-reports
+
 # Per-guest summary limited to one namespace (and its nested namespaces)
 ./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace --all-guests
 ```
@@ -76,14 +79,14 @@ In interactive mode you can:
 - Select an existing datastore from the list or enter one manually
 - Navigate the datastore directory structure and choose the search path (or enter it manually)
 - Scan all guests within the current path (datastore root or a selected namespace) to get a per-guest size overview, sorted by usage
-- Open the Options overlay (press `o`) to adjust threads, toggle emoji output, and enable guest comments next to IDs
+- Open the Options overlay (press `o`) to adjust threads, toggle emoji output, enable guest comments next to IDs, and set the CSV output directory for full datastore scans
 - When starting the full datastore scan you will see a warning and must confirm with `Proceed anyway? [y/N]` (English prompt) because the run can take a long time.
 
 Interactive controls (TUI):
 - Use Up/Down arrows (or j/k) to move
 - Press Space or Enter to select/confirm
 - Press m to enter a value/path manually
-- Press o to open Options (threads)
+- Press o to open Options (threads, emoji output, comments, CSV path)
 - Press v to show current version
 - Press q (or Esc) to abort
 - Inside the Options overlay, press Space to toggle items (Emoji output shows ✔/✘)
@@ -132,12 +135,26 @@ Notes:
 |--------|-------------|-------------|---------|
 | `--datastore` | Required (script mode) | PBS datastore name that contains the object you want to analyse | — |
 | `--searchpath` | Required (script mode) | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
-| `--all-guests` | Optional | Scan the entire datastore (or only the namespace given via `--searchpath`) and print a per-guest size summary (requires `--datastore`) | — |
+| `--all-guests` | Optional | Scan the entire datastore (or only the namespace given via `--searchpath`), print a per-guest size summary, and write a CSV report (requires `--datastore`) | — |
 | `--threads` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
 | `--no-emoji` | Optional | Replace emoji icons in CLI output with ASCII labels | Emoji output |
 | `--show-comments` | Optional | Show a short guest label derived from the latest snapshot comment next to each VM/CT in per-guest summaries and interactive path selection | Disabled |
+| `--csv-dir` | Optional | Directory where the CSV report for `--all-guests` is written | Current working directory |
 | `--version` | Optional | Show the script version and exit | — |
 | `--update` | Optional | Check for new releases and offer self-update, then exit | — |
+
+---
+
+### CSV output for full datastore scans
+
+When running with `--all-guests`, the script writes a CSV report **after** the scan finishes.
+
+- File name: ISO 8601 timestamp, e.g. `2025-07-01T12:34:56.csv`
+- Output directory: current working directory by default, or via `--csv-dir` / the Options overlay
+- Separator: `;` (semicolon)
+- Columns: `namespace_path`, `last_comment`, `unique_size_gib`
+- Size unit: GiB (1024^3 bytes), fixed 3-decimal precision
+- The CSV is written automically at the end so no partial file is left behind on errors
 
 ---
 
