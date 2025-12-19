@@ -18,9 +18,10 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.9.0"
+__version__ = "2.10.0"
 
 import argparse
+import csv
 import concurrent.futures as futures
 import hashlib
 import json
@@ -30,8 +31,10 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import (
     Any,
@@ -1013,6 +1016,70 @@ def _toggle_comments_setting(args) -> None:
     setattr(args, "show_comments", not current)
 
 
+def _csv_dir_display(args) -> str:
+    """Return a readable CSV output directory label for menus."""
+    return str(_resolve_csv_dir(getattr(args, "csv_dir", None)))
+
+
+def _curses_csv_dir_dialog(stdscr: object, args) -> bool:
+    """Interactive dialog to set the CSV output directory (curses UI)."""
+    current = _csv_dir_display(args)
+    lines = [
+        "CSV output directory for full datastore scans.",
+        f"Current value: {current}",
+        "",
+        "Enter a directory path to change it.",
+        "Leave blank to keep the current value.",
+    ]
+    result = _curses_popup(
+        stdscr,
+        "CSV Output Path",
+        lines,
+        prompt="New directory: ",
+    )
+    if result is None or not result:
+        return False
+    new_dir = _resolve_csv_dir(result)
+    if not new_dir.exists():
+        _curses_popup(stdscr, "CSV Output Path", ["Path does not exist."])
+        return False
+    if not new_dir.is_dir():
+        _curses_popup(stdscr, "CSV Output Path", ["Path is not a directory."])
+        return False
+    if not os.access(new_dir, os.W_OK):
+        _curses_popup(stdscr, "CSV Output Path", ["Path is not writable."])
+        return False
+    args.csv_dir = str(new_dir)
+    _curses_popup(stdscr, "CSV Output Path", [f"CSV output set to: {new_dir}"])
+    return True
+
+
+def _text_csv_dir_dialog(args) -> bool:
+    """Interactive dialog to set the CSV output directory (text UI)."""
+    while True:
+        clear_console()
+        current = _csv_dir_display(args)
+        print("CSV Output Path\n")
+        print(f"Current value: {current}\n")
+        typed = input("Enter new directory (leave blank to keep): ").strip()
+        if not typed:
+            return False
+        new_dir = _resolve_csv_dir(typed)
+        if not new_dir.exists():
+            input("Path does not exist. Press Enter to retry...")
+            continue
+        if not new_dir.is_dir():
+            input("Path is not a directory. Press Enter to retry...")
+            continue
+        if not os.access(new_dir, os.W_OK):
+            input("Path is not writable. Press Enter to retry...")
+            continue
+        args.csv_dir = str(new_dir)
+        print(f"\nCSV output set to: {new_dir}")
+        input("Press Enter to continue...")
+        return True
+
+
 def _options_menu_curses(stdscr: object, args) -> None:
     """Options overlay (curses): change threads and toggle emoji output."""
     curses.curs_set(0)
@@ -1030,6 +1097,7 @@ def _options_menu_curses(stdscr: object, args) -> None:
                 "Show guest comments "
                 f"[{_bool_checkbox(getattr(args, 'show_comments', False))}]",
             ),
+            ("csv_dir", f"CSV output directory [{_csv_dir_display(args)}]"),
             ("back", "Back"),
         ]
 
@@ -1101,6 +1169,11 @@ def _options_menu_curses(stdscr: object, args) -> None:
                     if getattr(args, "show_comments", False)
                     else "Guest comments disabled."
                 )
+            elif action == "csv_dir":
+                if _curses_csv_dir_dialog(stdscr, args):
+                    notice = f"CSV output directory set to {args.csv_dir}."
+                else:
+                    notice = ""
             elif action == "back":
                 return
         elif ch == ord(' '):
@@ -1135,6 +1208,7 @@ def _options_menu_text(args) -> None:
             " 3) Show guest comments "
             f"[{_bool_checkbox(getattr(args, 'show_comments', False))} - {comments_state}]"
         )
+        print(f" 4) CSV output directory [{_csv_dir_display(args)}]")
         print(" q) Back")
         raw = input("> ")
         if raw == " ":
@@ -1154,6 +1228,11 @@ def _options_menu_text(args) -> None:
                 if getattr(args, "show_comments", False)
                 else "Guest comments disabled."
             )
+        elif choice == "4":
+            if _text_csv_dir_dialog(args):
+                notice = f"CSV output directory set to {args.csv_dir}."
+            else:
+                notice = ""
         elif choice == "q":
             return
         else:
@@ -1981,11 +2060,13 @@ def get_guest_comment_for_path(
     datastore_name: Optional[str],
     datastore_root: Path,
     guest_path: Path,
+    simplify: bool = True,
 ) -> Optional[str]:
-    """Return a short guest label derived from the latest snapshot comment.
+    """Return the latest snapshot comment for a guest (simplified by default).
 
     Looks up the newest snapshot for the VM/CT identified by guest_path and
     extracts its comment. Best-effort only: returns None on any error.
+    Set simplify=False to return the raw comment text.
     """
     if not datastore_name:
         return None
@@ -1998,7 +2079,10 @@ def get_guest_comment_for_path(
     ns_key = namespace or ""
     cache_key = (datastore_name, ns_key, backup_type, backup_id)
     if cache_key in _GUEST_COMMENT_CACHE:
-        return _GUEST_COMMENT_CACHE[cache_key]
+        cached = _GUEST_COMMENT_CACHE[cache_key]
+        if not cached:
+            return None
+        return _simplify_guest_comment(cached) if simplify else cached
 
     snapshots = _load_snapshots_for_namespace(datastore_name, namespace)
     comment: Optional[str] = None
@@ -2023,12 +2107,14 @@ def get_guest_comment_for_path(
             latest = max(candidates, key=_snap_time)
             raw_comment = latest.get("comment")
             if isinstance(raw_comment, str):
-                simplified = _simplify_guest_comment(raw_comment)
-                if simplified:
-                    comment = simplified
+                stripped = raw_comment.strip()
+                if stripped:
+                    comment = stripped
 
     _GUEST_COMMENT_CACHE[cache_key] = comment
-    return comment
+    if not comment:
+        return None
+    return _simplify_guest_comment(comment) if simplify else comment
 
 
 def _confirm_full_datastore_scan_text(clear_screen: bool = True) -> bool:
@@ -2108,6 +2194,62 @@ def print_full_datastore_summary(
         print(line)
 
 
+def _resolve_csv_dir(raw: Optional[str]) -> Path:
+    """Resolve the CSV output directory from a user-provided path or defaults."""
+    if raw:
+        path = Path(raw).expanduser()
+    else:
+        path = Path.cwd()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def _csv_filename(timestamp: Optional[datetime] = None) -> str:
+    """Return the ISO 8601 filename used for full datastore scan CSV output."""
+    ts = timestamp or datetime.now()
+    return f"{ts.isoformat(timespec='seconds')}.csv"
+
+
+def _bytes_to_gib(num_bytes: int) -> str:
+    """Return bytes as a GiB string with fixed precision for CSV output."""
+    gib = num_bytes / (1024 ** 3)
+    return f"{gib:.3f}"
+
+
+def _write_full_scan_csv(
+    rows: Sequence[Tuple[str, str, int]],
+    output_dir: Path,
+) -> Path:
+    """Write the full datastore scan CSV atomically and return the final path."""
+    filename = _csv_filename()
+    final_path = output_dir / filename
+    tmp_file = tempfile.NamedTemporaryFile(
+        mode="w",
+        newline="",
+        encoding="utf-8",
+        dir=output_dir,
+        prefix=f".{filename}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    tmp_path = Path(tmp_file.name)
+    try:
+        with tmp_file as handle:
+            writer = csv.writer(handle, delimiter=";")
+            writer.writerow(["namespace_path", "last_comment", "unique_size_gib"])
+            for path_label, comment, unique_bytes in rows:
+                writer.writerow([path_label, comment, _bytes_to_gib(unique_bytes)])
+        os.replace(tmp_path, final_path)
+    except Exception:
+        try:
+            tmp_path.unlink()
+        except Exception:
+            pass
+        raise
+    return final_path
+
+
 def run_full_datastore_scan(
     datastore_root: Path,
     chunks_root: Path,
@@ -2115,7 +2257,7 @@ def run_full_datastore_scan(
     scan_root: Optional[Path] = None,
     require_confirmation: bool = True,
 ) -> int:
-    """Analyze every VM/CT under the datastore and print a size overview."""
+    """Analyze every VM/CT under the datastore, print a size overview, and emit CSV."""
     root = scan_root if scan_root is not None else datastore_root
     guests = discover_guest_paths(root)
     guests = sorted(guests, key=lambda p: str(p).lower())
@@ -2124,6 +2266,23 @@ def run_full_datastore_scan(
     if not guests:
         print(f"{ICONS['info']} No VM/CT directories found in this datastore.")
         return 0
+
+    csv_dir = _resolve_csv_dir(getattr(args, "csv_dir", None))
+    if not csv_dir.exists():
+        sys.stderr.write(
+            f"{ICONS['error']} Error: CSV output path does not exist → {csv_dir}\n"
+        )
+        return 1
+    if not csv_dir.is_dir():
+        sys.stderr.write(
+            f"{ICONS['error']} Error: CSV output path is not a directory → {csv_dir}\n"
+        )
+        return 1
+    if not os.access(csv_dir, os.W_OK):
+        sys.stderr.write(
+            f"{ICONS['error']} Error: CSV output path is not writable → {csv_dir}\n"
+        )
+        return 1
 
     if require_confirmation:
         if not confirm_full_datastore_scan():
@@ -2140,6 +2299,7 @@ def run_full_datastore_scan(
 
     overall_start = time.time()
     results: List[Tuple[str, UsageResult]] = []
+    csv_rows: List[Tuple[str, str, int]] = []
     total_guests = len(guests)
 
     for idx, guest_path in enumerate(guests, 1):
@@ -2154,14 +2314,17 @@ def run_full_datastore_scan(
             progress_label=f"{idx}/{total_guests} {label}",
         )
         summary_label = label
-        if getattr(args, "show_comments", False):
-            comment = get_guest_comment_for_path(
-                getattr(args, "datastore", None),
-                datastore_root,
-                guest_path,
-            )
-            if comment:
-                summary_label = f"{label} ({comment})"
+        raw_comment = get_guest_comment_for_path(
+            getattr(args, "datastore", None),
+            datastore_root,
+            guest_path,
+            simplify=False,
+        )
+        if getattr(args, "show_comments", False) and raw_comment:
+            simplified = _simplify_guest_comment(raw_comment)
+            if simplified:
+                summary_label = f"{label} ({simplified})"
+        csv_rows.append((label, raw_comment or "", result.unique_bytes))
         results.append((summary_label, result))
         if result.index_files == 0:
             print(f"{ICONS['info']} No index files (*.fidx/*.didx) found for {label}.")
@@ -2176,6 +2339,14 @@ def run_full_datastore_scan(
     print_full_datastore_summary(results)
     total_elapsed = format_elapsed(time.time() - overall_start)
     print(f"{ICONS['timer']} Full datastore scan duration: {total_elapsed}")
+    try:
+        csv_path = _write_full_scan_csv(csv_rows, csv_dir)
+    except Exception as exc:
+        sys.stderr.write(
+            f"{ICONS['error']} Error: failed to write CSV report: {exc}\n"
+        )
+        return 1
+    print(f"{ICONS['save']} CSV report saved to: {csv_path}")
     return 0
 
 
@@ -2367,7 +2538,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help=(
             "Analyze the entire datastore and show per-guest usage "
-            "(includes nested namespaces)."
+            "(includes nested namespaces) and write a CSV report."
         ),
     )
     default_threads = min(32, (os.cpu_count() or 4) * 2)
@@ -2401,6 +2572,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "Show a short label derived from the latest snapshot comment "
             "next to each guest in per-guest summaries and interactive "
             "path selection (best-effort)."
+        ),
+    )
+    parser.add_argument(
+        "--csv-dir",
+        dest="csv_dir",
+        default=os.getcwd(),
+        help=(
+            "Directory to store the CSV report produced by --all-guests "
+            "(defaults to the current working directory)."
         ),
     )
     args = parser.parse_args(argv)
