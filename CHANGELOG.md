@@ -1,8 +1,10 @@
 # 📝 Changelog
 
+- 2.10.1
+  - Always quote only the `last_comment` CSV field to avoid delimiter-related parsing issues (semicolon-separated).
 - 2.10.0
   - Add CSV reporting for full datastore scans (`--all-guests`), written atomically at the end with an ISO 8601 timestamp filename.
-  - Include namespace path with VM/CT ID, latest snapshot comment, and unique chunk size in GiB (fixed precision) in the CSV output.
+  - Include namespace path with VM/CT ID, latest snapshot comment (always quoted), and unique chunk size in GiB (fixed precision) in the CSV output.
   - Allow selecting the CSV output directory via `--csv-dir` and the interactive Options menu.
 - 2.9.0
   - Add an optional `--show-comments` flag and corresponding interactive option to show a short label derived from the latest PBS snapshot comment next to each VM/CT in the per‑guest summary and interactive search‑path selector (best‑effort, using `proxmox-backup-debug api get /admin/datastore/<DATASTORE>/snapshots`).
@@ -21,4 +23,3 @@
   - Keep `--version` as pure version output again.
 - 2.7.1
   - Split version and update logic: `--version` prints version; `--check-updates` checks and offers updates.
-+

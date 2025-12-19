@@ -18,10 +18,9 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.10.0"
+__version__ = "2.10.1"
 
 import argparse
-import csv
 import concurrent.futures as futures
 import hashlib
 import json
@@ -2236,10 +2235,10 @@ def _write_full_scan_csv(
     tmp_path = Path(tmp_file.name)
     try:
         with tmp_file as handle:
-            writer = csv.writer(handle, delimiter=";")
-            writer.writerow(["namespace_path", "last_comment", "unique_size_gib"])
+            handle.write("namespace_path;last_comment;unique_size_gib\n")
             for path_label, comment, unique_bytes in rows:
-                writer.writerow([path_label, comment, _bytes_to_gib(unique_bytes)])
+                escaped_comment = (comment or "").replace('"', '""')
+                handle.write(f'{path_label};"{escaped_comment}";{_bytes_to_gib(unique_bytes)}\n')
         os.replace(tmp_path, final_path)
     except Exception:
         try:
