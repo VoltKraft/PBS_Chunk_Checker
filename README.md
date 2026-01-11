@@ -222,7 +222,6 @@ Notes:
   - `proxmox-backup-debug`
 - The script validates that these CLI tools are available before starting and aborts with an actionable error if they are missing.
 - Use the `--no-emoji` flag when your terminal cannot display Unicode emoji; the script will switch to ASCII labels automatically.
----
 
 ---
 
@@ -235,6 +234,12 @@ Please read the [`CONTRIBUTING.md`](./CONTRIBUTING.md) first.
 
 If you find the project useful, consider leaving a star on GitHub ⭐
 It helps visibility and supports continued development.
+
+---
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=VoltKraft/PBS_Chunk_Checker&type=date&legend=top-left)](https://www.star-history.com/#VoltKraft/PBS_Chunk_Checker&type=date&legend=top-left)
 
 ---
 
