@@ -1,5 +1,7 @@
 # 📝 Changelog
 
+- 2.11.1
+  - Use an ISO 8601 (basic) timestamp for CSV filenames to avoid characters like `:` in file paths.
 - 2.11.0
   - Disallow combining `--silent` and `--no-csv` to avoid fully silent runs without CSV output.
   - Keep documentation in sync with the new CLI constraint.

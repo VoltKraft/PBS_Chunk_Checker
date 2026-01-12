@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.11.0"
+__version__ = "2.11.1"
 
 import argparse
 import concurrent.futures as futures
@@ -2224,9 +2224,9 @@ def _resolve_csv_dir(raw: Optional[str]) -> Path:
 
 
 def _csv_filename(timestamp: Optional[datetime] = None) -> str:
-    """Return the ISO 8601 filename used for full datastore scan CSV output."""
+    """Return the ISO 8601 (basic) filename used for full datastore scan CSV output."""
     ts = timestamp or datetime.now()
-    return f"{ts.isoformat(timespec='seconds')}.csv"
+    return f"{ts.strftime('%Y%m%dT%H%M%S')}.csv"
 
 
 def _bytes_to_gib(num_bytes: int) -> str:

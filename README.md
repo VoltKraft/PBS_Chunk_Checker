@@ -9,7 +9,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.11.0 (`./pbs_chunk_checker.py --version`)
+**Current version:** 2.11.1 (`./pbs_chunk_checker.py --version`)
 
 See full changes in `CHANGELOG.md`.
 
@@ -154,7 +154,7 @@ Notes:
 
 When running with `--all-guests`, the script writes a CSV report **after** the scan finishes unless `--no-csv` is set.
 
-- File name: ISO 8601 timestamp, e.g. `2025-07-01T12:34:56.csv`
+- File name: ISO 8601 timestamp (basic format, filename-safe), e.g. `20260128T123456.csv` (non-basic/extended ISO 8601 would be `2026-01-28T12:34:56.csv`)
 - Output directory: current working directory by default, or via `--csv-dir` / the Options overlay
 - Separator: `;` (semicolon)
 - Columns: `namespace_path`, `last_comment`, `unique_size_gib`
