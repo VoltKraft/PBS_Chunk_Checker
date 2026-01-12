@@ -9,7 +9,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.10.1 (`./pbs_chunk_checker.py --version`)
+**Current version:** 2.11.0 (`./pbs_chunk_checker.py --version`)
 
 See full changes in `CHANGELOG.md`.
 
@@ -67,6 +67,9 @@ Examples:
 # Per-guest summary limited to one namespace (and its nested namespaces)
 ./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace --all-guests
 ```
+
+Tip:
+Use `--silent` to suppress all output when running the script from cron jobs. Note that `--silent` and `--no-csv` cannot be combined.
 
 ### Interactive mode
 Run without parameters to open a menu for selecting the datastore and the search path:
@@ -135,11 +138,13 @@ Notes:
 |--------|-------------|-------------|---------|
 | `--datastore` | Required (script mode) | PBS datastore name that contains the object you want to analyse | — |
 | `--searchpath` | Required (script mode) | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
-| `--all-guests` | Optional | Scan the entire datastore (or only the namespace given via `--searchpath`), print a per-guest size summary, and write a CSV report (requires `--datastore`) | — |
+| `--all-guests` | Optional | Scan the entire datastore (or only the namespace given via `--searchpath`), print a per-guest size summary, and write a CSV report unless `--no-csv` is set (requires `--datastore`) | — |
 | `--threads` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
 | `--no-emoji` | Optional | Replace emoji icons in CLI output with ASCII labels | Emoji output |
+| `--silent` | Optional | Suppress all output (useful for cron jobs; cannot be combined with `--no-csv`) | Disabled |
 | `--show-comments` | Optional | Show a short guest label derived from the latest snapshot comment next to each VM/CT in per-guest summaries and interactive path selection | Disabled |
-| `--csv-dir` | Optional | Directory where the CSV report for `--all-guests` is written | Current working directory |
+| `--no-csv` | Optional | Disable writing the CSV report for `--all-guests` (cannot be combined with `--silent`) | Enabled |
+| `--csv-dir` | Optional | Directory where the CSV report for `--all-guests` is written (ignored with `--no-csv`) | Current working directory |
 | `--version` | Optional | Show the script version and exit | — |
 | `--update` | Optional | Check for new releases and offer self-update, then exit | — |
 
@@ -147,7 +152,7 @@ Notes:
 
 ### CSV output for full datastore scans
 
-When running with `--all-guests`, the script writes a CSV report **after** the scan finishes.
+When running with `--all-guests`, the script writes a CSV report **after** the scan finishes unless `--no-csv` is set.
 
 - File name: ISO 8601 timestamp, e.g. `2025-07-01T12:34:56.csv`
 - Output directory: current working directory by default, or via `--csv-dir` / the Options overlay

@@ -1,5 +1,11 @@
 # 📝 Changelog
 
+- 2.11.0
+  - Disallow combining `--silent` and `--no-csv` to avoid fully silent runs without CSV output.
+  - Keep documentation in sync with the new CLI constraint.
+  - Add `--silent` to suppress all output (useful for cron jobs) and avoid interactive mode in silent runs.
+  - Add `--no-csv` to disable CSV report generation for `--all-guests`.
+  - Document the new CLI options.
 - 2.10.1
   - Always quote only the `last_comment` CSV field to avoid delimiter-related parsing issues (semicolon-separated).
 - 2.10.0

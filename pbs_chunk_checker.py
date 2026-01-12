@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.10.1"
+__version__ = "2.11.0"
 
 import argparse
 import concurrent.futures as futures
@@ -46,6 +46,7 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    TextIO,
     Tuple,
 )
 import urllib.error
@@ -135,6 +136,8 @@ ASCII_ICONS: Dict[str, str] = {
 
 ICONS: Dict[str, str] = EMOJI_ICONS.copy()
 _EMOJI_ENABLED = True
+_SILENT = False
+_SILENT_STREAM: Optional[TextIO] = None
 
 
 def _set_emoji_mode(enabled: bool) -> None:
@@ -148,7 +151,23 @@ def _set_emoji_mode(enabled: bool) -> None:
 def clear_console() -> None:
     """Clear the terminal similar to the POSIX 'clear' command."""
     # ANSI full reset works for Linux terminal emulators
+    if _SILENT:
+        return
     print("\033c", end="", flush=True)
+
+
+def _enable_silent_output() -> None:
+    """Suppress stdout/stderr output (best-effort)."""
+    global _SILENT, _SILENT_STREAM
+    if _SILENT:
+        return
+    _SILENT = True
+    try:
+        _SILENT_STREAM = open(os.devnull, "w")
+        sys.stdout = _SILENT_STREAM  # type: ignore[assignment]
+        sys.stderr = _SILENT_STREAM  # type: ignore[assignment]
+    except Exception:
+        pass
 
 # =============================================================================
 # Update check and self-update (GitHub Releases)
@@ -2256,7 +2275,7 @@ def run_full_datastore_scan(
     scan_root: Optional[Path] = None,
     require_confirmation: bool = True,
 ) -> int:
-    """Analyze every VM/CT under the datastore, print a size overview, and emit CSV."""
+    """Analyze every VM/CT under the datastore, print a size overview, and emit CSV when enabled."""
     root = scan_root if scan_root is not None else datastore_root
     guests = discover_guest_paths(root)
     guests = sorted(guests, key=lambda p: str(p).lower())
@@ -2266,22 +2285,24 @@ def run_full_datastore_scan(
         print(f"{ICONS['info']} No VM/CT directories found in this datastore.")
         return 0
 
-    csv_dir = _resolve_csv_dir(getattr(args, "csv_dir", None))
-    if not csv_dir.exists():
-        sys.stderr.write(
-            f"{ICONS['error']} Error: CSV output path does not exist → {csv_dir}\n"
-        )
-        return 1
-    if not csv_dir.is_dir():
-        sys.stderr.write(
-            f"{ICONS['error']} Error: CSV output path is not a directory → {csv_dir}\n"
-        )
-        return 1
-    if not os.access(csv_dir, os.W_OK):
-        sys.stderr.write(
-            f"{ICONS['error']} Error: CSV output path is not writable → {csv_dir}\n"
-        )
-        return 1
+    csv_dir: Optional[Path] = None
+    if getattr(args, "csv_report", True):
+        csv_dir = _resolve_csv_dir(getattr(args, "csv_dir", None))
+        if not csv_dir.exists():
+            sys.stderr.write(
+                f"{ICONS['error']} Error: CSV output path does not exist → {csv_dir}\n"
+            )
+            return 1
+        if not csv_dir.is_dir():
+            sys.stderr.write(
+                f"{ICONS['error']} Error: CSV output path is not a directory → {csv_dir}\n"
+            )
+            return 1
+        if not os.access(csv_dir, os.W_OK):
+            sys.stderr.write(
+                f"{ICONS['error']} Error: CSV output path is not writable → {csv_dir}\n"
+            )
+            return 1
 
     if require_confirmation:
         if not confirm_full_datastore_scan():
@@ -2298,7 +2319,7 @@ def run_full_datastore_scan(
 
     overall_start = time.time()
     results: List[Tuple[str, UsageResult]] = []
-    csv_rows: List[Tuple[str, str, int]] = []
+    csv_rows: Optional[List[Tuple[str, str, int]]] = [] if csv_dir is not None else None
     total_guests = len(guests)
 
     for idx, guest_path in enumerate(guests, 1):
@@ -2323,7 +2344,8 @@ def run_full_datastore_scan(
             simplified = _simplify_guest_comment(raw_comment)
             if simplified:
                 summary_label = f"{label} ({simplified})"
-        csv_rows.append((label, raw_comment or "", result.unique_bytes))
+        if csv_rows is not None:
+            csv_rows.append((label, raw_comment or "", result.unique_bytes))
         results.append((summary_label, result))
         if result.index_files == 0:
             print(f"{ICONS['info']} No index files (*.fidx/*.didx) found for {label}.")
@@ -2338,14 +2360,15 @@ def run_full_datastore_scan(
     print_full_datastore_summary(results)
     total_elapsed = format_elapsed(time.time() - overall_start)
     print(f"{ICONS['timer']} Full datastore scan duration: {total_elapsed}")
-    try:
-        csv_path = _write_full_scan_csv(csv_rows, csv_dir)
-    except Exception as exc:
-        sys.stderr.write(
-            f"{ICONS['error']} Error: failed to write CSV report: {exc}\n"
-        )
-        return 1
-    print(f"{ICONS['save']} CSV report saved to: {csv_path}")
+    if csv_dir is not None and csv_rows is not None:
+        try:
+            csv_path = _write_full_scan_csv(csv_rows, csv_dir)
+        except Exception as exc:
+            sys.stderr.write(
+                f"{ICONS['error']} Error: failed to write CSV report: {exc}\n"
+            )
+            return 1
+        print(f"{ICONS['save']} CSV report saved to: {csv_path}")
     return 0
 
 
@@ -2537,7 +2560,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help=(
             "Analyze the entire datastore and show per-guest usage "
-            "(includes nested namespaces) and write a CSV report."
+            "(includes nested namespaces) and write a CSV report "
+            "(unless --no-csv is set)."
         ),
     )
     default_threads = min(32, (os.cpu_count() or 4) * 2)
@@ -2565,6 +2589,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="Disable emoji characters in console output.",
     )
     parser.add_argument(
+        "--silent",
+        action="store_true",
+        help="Suppress all output (useful for cron jobs; cannot be combined with --no-csv).",
+    )
+    parser.add_argument(
         "--show-comments",
         action="store_true",
         help=(
@@ -2574,21 +2603,39 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         ),
     )
     parser.add_argument(
+        "--no-csv",
+        dest="csv_report",
+        action="store_false",
+        default=True,
+        help="Disable writing the CSV report for --all-guests (cannot be combined with --silent).",
+    )
+    parser.add_argument(
         "--csv-dir",
         dest="csv_dir",
         default=os.getcwd(),
         help=(
             "Directory to store the CSV report produced by --all-guests "
-            "(defaults to the current working directory)."
+            "(defaults to the current working directory; ignored with --no-csv)."
         ),
     )
     args = parser.parse_args(argv)
 
+    if args.silent and not args.csv_report:
+        parser.error("--silent cannot be combined with --no-csv.")
+
     _set_emoji_mode(not args.no_emoji)
 
     if args.update:
+        if args.silent:
+            return 0
         _text_show_version(pause_after=False, clear_screen=False)
         return 0
+
+    if args.silent and not args.datastore and not args.searchpath and not args.all_guests:
+        return 2
+
+    if args.silent:
+        _enable_silent_output()
 
     clear_console()
 
