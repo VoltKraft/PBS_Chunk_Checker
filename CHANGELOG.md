@@ -1,5 +1,9 @@
 # 📝 Changelog
 
+- 2.11.2
+  - Make the script more cron-friendly by resolving PBS CLI tools via a deterministic PATH and executing them via absolute paths.
+  - Avoid emitting ANSI clear-screen sequences when stdout is not a TTY (e.g., cron output).
+  - If started without parameters in a non-interactive environment, exit with a helpful error instead of crashing.
 - 2.11.1
   - Use an ISO 8601 (basic) timestamp for CSV filenames to avoid characters like `:` in file paths.
 - 2.11.0

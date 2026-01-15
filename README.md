@@ -9,7 +9,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.11.1 (`./pbs_chunk_checker.py --version`)
+**Current version:** 2.11.2 (`./pbs_chunk_checker.py --version`)
 
 See full changes in `CHANGELOG.md`.
 
@@ -70,6 +70,7 @@ Examples:
 
 Tip:
 Use `--silent` to suppress all output when running the script from cron jobs. Note that `--silent` and `--no-csv` cannot be combined.
+If you use `--all-guests` from cron, also set `--csv-dir` to an absolute path (cron’s working directory and PATH can be minimal).
 
 ### Interactive mode
 Run without parameters to open a menu for selecting the datastore and the search path:

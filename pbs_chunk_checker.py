@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.11.1"
+__version__ = "2.11.2"
 
 import argparse
 import concurrent.futures as futures
@@ -152,6 +152,8 @@ def clear_console() -> None:
     """Clear the terminal similar to the POSIX 'clear' command."""
     # ANSI full reset works for Linux terminal emulators
     if _SILENT:
+        return
+    if not sys.stdout.isatty():
         return
     print("\033c", end="", flush=True)
 
@@ -567,10 +569,16 @@ def ensure_required_tools() -> None:
     """Verify that required PBS CLI tools are available before proceeding."""
     global COMMAND_ENV
     required = ["proxmox-backup-manager", "proxmox-backup-debug"]
+    search_path_entries: List[str] = []
+    for candidate in (COMMAND_ENV.get("PATH"), os.environ.get("PATH"), os.defpath):
+        for segment in (candidate or "").split(os.pathsep):
+            if segment and segment not in search_path_entries:
+                search_path_entries.append(segment)
+    search_path = os.pathsep.join(search_path_entries)
     resolved: Dict[str, str] = {}
     missing = []
     for cmd in required:
-        path = shutil.which(cmd)
+        path = shutil.which(cmd, path=search_path)
         if path is None:
             missing.append(cmd)
             continue
@@ -2652,6 +2660,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     interactive = not args.datastore and not args.searchpath and not args.all_guests
 
     if interactive:
+        if not os.isatty(0):
+            sys.stderr.write(
+                f"{ICONS['error']} Error: no interactive terminal detected.\n"
+            )
+            sys.stderr.write(
+                "Please provide --datastore and --searchpath (or --all-guests), "
+                "or run from a terminal for interactive mode.\n"
+            )
+            return 2
         res = _interactive_menu(args)
         if res is None:
             print("Aborted.")
