@@ -245,7 +245,6 @@ It helps visibility and supports continued development.
 
 ## ⭐ Star History
 
-## Star History
 
 <a href="https://www.star-history.com/#VoltKraft/PBS_Chunk_Checker&type=date&legend=top-left">
  <picture>
