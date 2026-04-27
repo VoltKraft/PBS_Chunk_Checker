@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.11.2"
+__version__ = "2.12.0"
 
 import argparse
 import concurrent.futures as futures
@@ -115,6 +115,7 @@ EMOJI_ICONS: Dict[str, str] = {
     "puzzle": "🧩",
     "missing": "❌",
     "threads": "🧵",
+    "list": "📋",
 }
 
 ASCII_ICONS: Dict[str, str] = {
@@ -132,6 +133,7 @@ ASCII_ICONS: Dict[str, str] = {
     "puzzle": "[DETAIL]",
     "missing": "[MISSING]",
     "threads": "[THREADS]",
+    "list": "[LIST]",
 }
 
 ICONS: Dict[str, str] = EMOJI_ICONS.copy()
@@ -620,6 +622,22 @@ def find_index_files(search_path: str) -> list[str]:
             if name.endswith(".fidx") or name.endswith(".didx"):
                 matches.append(str(Path(root) / name))
     return matches
+
+
+def group_index_files_by_snapshot(index_files: list[str]) -> dict[str, list[str]]:
+    """Group index files by snapshot name (the parent directory name).
+
+    Returns a dict mapping snapshot name (e.g., "2026-03-29T23:38:38Z") to a
+    list of index file paths belonging to that snapshot.
+    """
+    groups: dict[str, list[str]] = {}
+    for filepath in index_files:
+        parent = Path(filepath).parent
+        snapshot_name = parent.name
+        if snapshot_name not in groups:
+            groups[snapshot_name] = []
+        groups[snapshot_name].append(filepath)
+    return groups
 
 
 def resolve_search_path(datastore_path: str, searchpath: str) -> Path:
@@ -1757,6 +1775,15 @@ class UsageResult(NamedTuple):
     elapsed: float
 
 
+class SnapshotResult(NamedTuple):
+    """Container for per-snapshot chunk usage statistics."""
+    snapshot_name: str
+    unique_bytes: int
+    shared_bytes: int
+    unique_chunks: int
+    shared_chunks: int
+
+
 def analyze_search_path(
     search_path_obj: Path,
     chunks_root: Path,
@@ -1930,6 +1957,258 @@ def print_usage_summary(result: UsageResult, elapsed_seconds: float) -> None:
 
     if result.missing_chunks:
         print(f"{ICONS['warning']} Missing chunk files: {result.missing_chunks}")
+
+
+def _parse_snapshot_name(name: str) -> Tuple[str, float]:
+    """Parse snapshot name for sorting (newest first).
+
+    Accepts PBS ISO 8601 format (e.g. "2026-03-29T23:38:38Z") as well as
+    underscore-separated variants.  Returns (normalized_name, sort_key) where
+    sort_key is a timestamp or 0.0 if parsing fails.
+    """
+    normalized = name.rstrip("Z").replace("T", " ").replace("_", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            dt = datetime.strptime(normalized, fmt)
+            return name, dt.timestamp()
+        except ValueError:
+            continue
+    return name, 0.0
+
+
+def analyze_guest_per_snapshot(
+    guest_path: Path,
+    chunks_root: Path,
+    threads: int,
+    timer_base: Optional[float] = None,
+    progress_label: str = "",
+) -> Tuple[UsageResult, List[SnapshotResult]]:
+    """Analyze a guest path and return per-snapshot usage statistics.
+
+    The overall UsageResult is computed exactly like analyze_search_path so that
+    the summary output remains identical. Per-snapshot breakdowns are computed as
+    additional data.
+    """
+    analysis_start = time.time()
+    progress_start = timer_base if timer_base is not None else analysis_start
+    label_suffix = f" [{progress_label.strip()}]" if progress_label.strip() else ""
+
+    index_files = find_index_files(str(guest_path))
+    total_files = len(index_files)
+    if total_files == 0:
+        return (
+            UsageResult(0, 0, 0, 0, 0, 0, time.time() - analysis_start),
+            [],
+        )
+
+    snapshot_groups = group_index_files_by_snapshot(index_files)
+    if not snapshot_groups:
+        return (
+            UsageResult(0, 0, 0, 0, 0, 0, time.time() - analysis_start),
+            [],
+        )
+
+    # Build per-snapshot digest sets AND a global occurrence counter
+    all_digests: Set[str] = set()
+    snapshot_digests: Dict[str, Set[str]] = {}
+    digest_counter = Counter()
+    snapshot_digest_counters: Dict[str, Counter] = {}
+
+    print(f"\n{ICONS['save']} Saving all used chunks{label_suffix}")
+
+    processed = 0
+    for snapshot_name in snapshot_groups:
+        digests: Set[str] = set()
+        snap_counter = Counter()
+        for idx_file in snapshot_groups[snapshot_name]:
+            try:
+                chunks = extract_chunks_from_file(idx_file)
+                digests.update(chunks)
+                snap_counter.update(chunks)
+                digest_counter.update(chunks)
+            except Exception as e:
+                sys.stderr.write(
+                    f"\n{ICONS['warning']} Warning: failed to parse {idx_file}: {e}\n"
+                )
+            processed += 1
+            elapsed_display = format_elapsed(time.time() - progress_start)
+            prefix = f"{ICONS['index']} Index{label_suffix}"
+            _progress_line(
+                prefix,
+                processed,
+                total_files,
+                f"| {ICONS['timer']} {elapsed_display}",
+            )
+        snapshot_digests[snapshot_name] = digests
+        snapshot_digest_counters[snapshot_name] = snap_counter
+        all_digests.update(digests)
+
+    print()
+
+    if not all_digests:
+        return (
+            UsageResult(total_files, 0, 0, 0, 0, 0, time.time() - analysis_start),
+            [],
+        )
+
+    total_unique = len(digest_counter)
+
+    print(f"{ICONS['sum']} Summing up chunks{label_suffix}")
+
+    # Determine which digests appear in multiple snapshots (cross-snapshot sharing)
+    digest_snapshot_count: Dict[str, int] = Counter()
+    for snapshot_name, digests in snapshot_digests.items():
+        for d in digests:
+            digest_snapshot_count[d] += 1
+
+    def _stat_chunk(digest: str) -> Tuple[str, int]:
+        path = chunk_path_for_digest(chunks_root, digest)
+        size = stat_size_if_exists(path)
+        return digest, size
+
+    digest_sizes: Dict[str, int] = {}
+    missing_count = 0
+    unique_bytes = 0
+    duplicate_bytes = 0
+
+    with futures.ThreadPoolExecutor(max_workers=threads) as pool:
+        futs = {pool.submit(_stat_chunk, d): d for d in digest_counter.keys()}
+        summed = 0
+        for fut in futures.as_completed(futs):
+            try:
+                digest, size = fut.result()
+                digest_sizes[digest] = size
+                unique_bytes += size
+                occurrences = digest_counter[futs[fut]]
+                if occurrences > 1 and size:
+                    duplicate_bytes += size * (occurrences - 1)
+                if size == 0:
+                    path = chunk_path_for_digest(chunks_root, futs[fut])
+                    if not path.exists():
+                        missing_count += 1
+                        print(
+                            f"\r\033[K{ICONS['missing']} Missing: {path}",
+                            flush=True,
+                        )
+            except Exception as e:
+                sys.stderr.write(
+                    f"\n{ICONS['warning']} Warning: failed to stat chunk {futs[fut]}: {e}\n"
+                )
+            summed += 1
+            elapsed_display = format_elapsed(time.time() - progress_start)
+            size_label = human_readable_size(unique_bytes)
+            prefix = f"{ICONS['chunk']} Chunk{label_suffix}"
+            extra = (
+                f"| {ICONS['total']} Size so far: {size_label} "
+                f"| {ICONS['timer']} {elapsed_display}"
+            )
+            _progress_line(
+                prefix,
+                summed,
+                total_unique,
+                extra,
+            )
+
+    print()
+    print("\033[2K", end="")
+
+    chunk_counter_total = sum(digest_counter.values())
+    elapsed_total = time.time() - analysis_start
+    overall = UsageResult(
+        index_files=total_files,
+        unique_chunks=total_unique,
+        total_references=chunk_counter_total,
+        unique_bytes=unique_bytes,
+        duplicate_bytes=duplicate_bytes,
+        missing_chunks=missing_count,
+        elapsed=elapsed_total,
+    )
+
+    # Compute per-snapshot breakdown (additional data)
+    snapshot_results: List[SnapshotResult] = []
+
+    for snapshot_name in sorted(
+        snapshot_digests.keys(),
+        key=lambda sn: _parse_snapshot_name(sn)[1],
+        reverse=True,
+    ):
+        digests = snapshot_digests[snapshot_name]
+        snap_counter = snapshot_digest_counters[snapshot_name]
+        snap_unique_bytes = 0
+        snap_shared_bytes = 0
+        snap_unique_chunks = 0
+        snap_shared_chunks = 0
+
+        for d in set(digests):  # iterate unique digests in this snapshot
+            size = digest_sizes.get(d, 0)
+            occurrences_in_snapshot = snap_counter[d]
+            appears_in_other_snapshots = digest_snapshot_count[d] > 1
+
+            if appears_in_other_snapshots:
+                # Chunk is shared across snapshots - all occurrences are "shared"
+                snap_shared_bytes += size * occurrences_in_snapshot
+                snap_shared_chunks += occurrences_in_snapshot
+            elif occurrences_in_snapshot > 1:
+                # Chunk appears multiple times in this snapshot only
+                snap_unique_bytes += size  # first occurrence is unique
+                snap_unique_chunks += 1
+                snap_shared_bytes += size * (occurrences_in_snapshot - 1)
+                snap_shared_chunks += occurrences_in_snapshot - 1
+            else:
+                # Chunk appears exactly once in this snapshot only
+                snap_unique_bytes += size
+                snap_unique_chunks += 1
+
+        snapshot_results.append(
+            SnapshotResult(
+                snapshot_name=snapshot_name,
+                unique_bytes=snap_unique_bytes,
+                shared_bytes=snap_shared_bytes,
+                unique_chunks=snap_unique_chunks,
+                shared_chunks=snap_shared_chunks,
+            )
+        )
+
+    return overall, snapshot_results
+
+
+def print_snapshot_table(results: List[SnapshotResult]) -> None:
+    """Render a column-aligned table for per-snapshot results."""
+    if not results:
+        return
+
+    print(f"\n{ICONS['list']} Snapshot breakdown:")
+
+    col_snapshot = "Snapshot"
+    col_unique = "Unique Size"
+    col_shared = "Shared Size"
+    col_total = "Total Size"
+
+    w_snapshot = max(len(col_snapshot), max(len(r.snapshot_name) for r in results))
+    w_unique = max(len(col_unique), max(len(human_readable_size(r.unique_bytes)) for r in results))
+    w_shared = max(len(col_shared), max(len(human_readable_size(r.shared_bytes)) for r in results))
+    w_total = max(len(col_total), max(len(human_readable_size(r.unique_bytes + r.shared_bytes)) for r in results))
+
+    print(
+        f"  {col_snapshot.ljust(w_snapshot)}  "
+        f"{col_unique.rjust(w_unique)}  "
+        f"{col_shared.rjust(w_shared)}  "
+        f"{col_total.rjust(w_total)}"
+    )
+    separator = "  " + "-" * w_snapshot + "  " + "-" * w_unique + "  " + "-" * w_shared + "  " + "-" * w_total
+    print(separator)
+
+    for result in results:
+        name = result.snapshot_name
+        unique_size = human_readable_size(result.unique_bytes)
+        shared_size = human_readable_size(result.shared_bytes)
+        total_size = human_readable_size(result.unique_bytes + result.shared_bytes)
+        print(
+            f"  {name.ljust(w_snapshot)}  "
+            f"{unique_size.rjust(w_unique)}  "
+            f"{shared_size.rjust(w_shared)}  "
+            f"{total_size.rjust(w_total)}"
+        )
 
 
 # =============================================================================
@@ -2231,10 +2510,10 @@ def _resolve_csv_dir(raw: Optional[str]) -> Path:
     return path
 
 
-def _csv_filename(timestamp: Optional[datetime] = None) -> str:
+def _csv_filename(timestamp: Optional[datetime] = None, prefix: str = "") -> str:
     """Return the ISO 8601 (basic) filename used for full datastore scan CSV output."""
     ts = timestamp or datetime.now()
-    return f"{ts.strftime('%Y%m%dT%H%M%S')}.csv"
+    return f"{prefix}{ts.strftime('%Y%m%dT%H%M%S')}.csv"
 
 
 def _bytes_to_gib(num_bytes: int) -> str:
@@ -2266,6 +2545,43 @@ def _write_full_scan_csv(
             for path_label, comment, unique_bytes in rows:
                 escaped_comment = (comment or "").replace('"', '""')
                 handle.write(f'{path_label};"{escaped_comment}";{_bytes_to_gib(unique_bytes)}\n')
+        os.replace(tmp_path, final_path)
+    except Exception:
+        try:
+            tmp_path.unlink()
+        except Exception:
+            pass
+        raise
+    return final_path
+
+
+def _write_snapshot_csv(
+    rows: Sequence[Tuple[str, str, int, int, int, int]],
+    output_dir: Path,
+) -> Path:
+    """Write the per-snapshot CSV atomically and return the final path."""
+    filename = _csv_filename(prefix="snapshots_")
+    final_path = output_dir / filename
+    tmp_file = tempfile.NamedTemporaryFile(
+        mode="w",
+        newline="",
+        encoding="utf-8",
+        dir=output_dir,
+        prefix=f".{filename}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    tmp_path = Path(tmp_file.name)
+    try:
+        with tmp_file as handle:
+            handle.write(
+                "namespace_path;snapshot_name;unique_bytes;shared_bytes;total_bytes;unique_chunks\n"
+            )
+            for path_label, snap_name, unique_bytes, shared_bytes, total_bytes, unique_chunks in rows:
+                handle.write(
+                    f"{path_label};{snap_name};{unique_bytes};{shared_bytes};"
+                    f"{total_bytes};{unique_chunks}\n"
+                )
         os.replace(tmp_path, final_path)
     except Exception:
         try:
@@ -2327,20 +2643,42 @@ def run_full_datastore_scan(
 
     overall_start = time.time()
     results: List[Tuple[str, UsageResult]] = []
-    csv_rows: Optional[List[Tuple[str, str, int]]] = [] if csv_dir is not None else None
+    snapshot_csv_rows = [] if csv_dir is not None and getattr(args, "per_snapshot", False) else None
+    csv_rows = [] if csv_dir is not None else None
     total_guests = len(guests)
+    per_snapshot = getattr(args, "per_snapshot", False)
 
     for idx, guest_path in enumerate(guests, 1):
         label = guest_labels[idx - 1]
         print(f"\n{ICONS['folder']} [{idx}/{total_guests}] {label}")
         guest_start = time.time()
-        result = analyze_search_path(
-            guest_path,
-            chunks_root,
-            args.threads,
-            timer_base=guest_start,
-            progress_label=f"{idx}/{total_guests} {label}",
-        )
+
+        if per_snapshot:
+            result, snapshot_results = analyze_guest_per_snapshot(
+                guest_path,
+                chunks_root,
+                args.threads,
+                timer_base=guest_start,
+                progress_label=f"{idx}/{total_guests} {label}",
+            )
+            if snapshot_csv_rows is not None:
+                for sr in snapshot_results:
+                    snapshot_csv_rows.append((
+                        label,
+                        sr.snapshot_name,
+                        sr.unique_bytes,
+                        sr.shared_bytes,
+                        sr.unique_bytes + sr.shared_bytes,
+                        sr.unique_chunks,
+                    ))
+        else:
+            result = analyze_search_path(
+                guest_path,
+                chunks_root,
+                args.threads,
+                timer_base=guest_start,
+                progress_label=f"{idx}/{total_guests} {label}",
+            )
         summary_label = label
         raw_comment = get_guest_comment_for_path(
             getattr(args, "datastore", None),
@@ -2364,6 +2702,9 @@ def run_full_datastore_scan(
 
         print_usage_summary(result, time.time() - guest_start)
 
+        if per_snapshot and snapshot_results:
+            print_snapshot_table(snapshot_results)
+
     print()
     print_full_datastore_summary(results)
     total_elapsed = format_elapsed(time.time() - overall_start)
@@ -2377,6 +2718,15 @@ def run_full_datastore_scan(
             )
             return 1
         print(f"{ICONS['save']} CSV report saved to: {csv_path}")
+    if csv_dir is not None and snapshot_csv_rows is not None:
+        try:
+            snapshot_csv_path = _write_snapshot_csv(snapshot_csv_rows, csv_dir)
+        except Exception as exc:
+            sys.stderr.write(
+                f"{ICONS['error']} Error: failed to write snapshot CSV report: {exc}\n"
+            )
+            return 1
+        print(f"{ICONS['save']} Snapshot CSV report saved to: {snapshot_csv_path}")
     return 0
 
 
@@ -2626,10 +2976,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "(defaults to the current working directory; ignored with --no-csv)."
         ),
     )
+    parser.add_argument(
+        "--per-snapshot",
+        action="store_true",
+        help=(
+            "Show per-snapshot breakdown for each guest, with unique vs shared "
+            "chunk usage (requires --all-guests or a single guest searchpath)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.silent and not args.csv_report:
         parser.error("--silent cannot be combined with --no-csv.")
+
+    if args.per_snapshot and not args.all_guests and not args.searchpath:
+        parser.error(
+            "--per-snapshot requires either --all-guests or a single guest searchpath."
+        )
 
     _set_emoji_mode(not args.no_emoji)
 
@@ -2749,11 +3112,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sys.stderr.write(f"{ICONS['error']} Error: folder does not exist → {search_path}\n")
         return 1
 
-    result = analyze_search_path(search_path_obj, chunks_root, args.threads, timer_base=start_ts)
-    if result.index_files == 0 or result.unique_chunks == 0:
-        return 0
+    if getattr(args, "per_snapshot", False):
+        result, snapshot_results = analyze_guest_per_snapshot(
+            search_path_obj,
+            chunks_root,
+            args.threads,
+            timer_base=start_ts,
+        )
+        if result.index_files == 0 or result.unique_chunks == 0:
+            return 0
 
-    print_usage_summary(result, time.time() - start_ts)
+        print()
+        print_usage_summary(result, time.time() - start_ts)
+
+        if snapshot_results:
+            print_snapshot_table(snapshot_results)
+    else:
+        result = analyze_search_path(search_path_obj, chunks_root, args.threads, timer_base=start_ts)
+        if result.index_files == 0 or result.unique_chunks == 0:
+            return 0
+
+        print_usage_summary(result, time.time() - start_ts)
 
     return 0
 

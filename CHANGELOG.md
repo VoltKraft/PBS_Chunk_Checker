@@ -1,5 +1,10 @@
 # 📝 Changelog
 
+- 2.12.0
+  - Add `--per-snapshot` flag that prints a per-snapshot breakdown (Unique / Shared / Total size) below each guest summary, sorted newest snapshot first.
+  - Works with `--all-guests` and with a single-guest `--searchpath`.
+  - When combined with `--all-guests`, an additional `snapshots_<timestamp>.csv` is written next to the regular CSV report (semicolon-separated, columns: `namespace_path`, `snapshot_name`, `unique_bytes`, `shared_bytes`, `total_bytes`, `unique_chunks`).
+  - Document the new CLI option.
 - 2.11.2
   - Make the script more cron-friendly by resolving PBS CLI tools via a deterministic PATH and executing them via absolute paths.
   - Avoid emitting ANSI clear-screen sequences when stdout is not a TTY (e.g., cron output).
