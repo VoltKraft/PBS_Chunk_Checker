@@ -9,7 +9,7 @@ It calculates the **real disk space usage** of a specific **namespace**, **VM**,
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.11.2 (`./pbs_chunk_checker.py --version`)
+**Current version:** 2.12.0 (`./pbs_chunk_checker.py --version`)
 
 See full changes in `CHANGELOG.md`.
 
@@ -66,6 +66,12 @@ Examples:
 
 # Per-guest summary limited to one namespace (and its nested namespaces)
 ./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace --all-guests
+
+# Per-snapshot breakdown for a single VM/CT
+./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace/vm/100 --per-snapshot
+
+# Per-snapshot breakdown for every guest in the datastore (writes an extra snapshots_*.csv)
+./pbs_chunk_checker.py --datastore MyDatastore --all-guests --per-snapshot
 ```
 
 Tip:
@@ -146,6 +152,7 @@ Notes:
 | `--show-comments` | Optional | Show a short guest label derived from the latest snapshot comment next to each VM/CT in per-guest summaries and interactive path selection | Disabled |
 | `--no-csv` | Optional | Disable writing the CSV report for `--all-guests` (cannot be combined with `--silent`) | Enabled |
 | `--csv-dir` | Optional | Directory where the CSV report for `--all-guests` is written (ignored with `--no-csv`) | Current working directory |
+| `--per-snapshot` | Optional | Print a per-snapshot breakdown (Unique / Shared / Total size) below each guest summary; with `--all-guests` an additional `snapshots_*.csv` is written | Disabled |
 | `--version` | Optional | Show the script version and exit | — |
 | `--update` | Optional | Check for new releases and offer self-update, then exit | — |
 
@@ -162,6 +169,23 @@ When running with `--all-guests`, the script writes a CSV report **after** the s
 - The `last_comment` field is always quoted (other fields are not).
 - Size unit: GiB (1024^3 bytes), fixed 3-decimal precision
 - The CSV is written automically at the end so no partial file is left behind on errors
+
+---
+
+### Per-snapshot breakdown (`--per-snapshot`)
+
+Adds a per-snapshot table after each guest summary. Snapshots are sorted newest first. Requires either `--all-guests` or a single-guest `--searchpath`.
+
+Columns:
+- **Unique Size**: size of chunks that are referenced **only** by this snapshot. The first reference of a chunk that does not appear in any other snapshot counts here.
+- **Shared Size**: size of references that are *not* unique to this snapshot. This includes both cross-snapshot sharing (chunks also referenced by other snapshots) and any additional references of the same chunk *within* this snapshot.
+- **Total Size**: `Unique + Shared`. This is the logical reference size of the snapshot (i.e. the sum of `chunk_size × occurrence count`), not the deduplicated on-disk size.
+
+When combined with `--all-guests`, an additional CSV report is written next to the regular one:
+- File name: `snapshots_<timestamp>.csv` (same timestamp format as the regular report)
+- Separator: `;` (semicolon)
+- Columns: `namespace_path`, `snapshot_name`, `unique_bytes`, `shared_bytes`, `total_bytes`, `unique_chunks`
+- Sizes in raw bytes (not GiB), one row per snapshot per guest
 
 ---
 
