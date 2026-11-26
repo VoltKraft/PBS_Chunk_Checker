@@ -1,5 +1,9 @@
 # 📝 Changelog
 
+- 2.12.1
+  - Include host backup groups in `--all-guests` and interactive scans, including CSV and per-snapshot reports.
+  - Resolve the latest snapshot comment for host backup groups and use the correct PBS namespace for nested groups.
+
 - 2.12.0
   - Add `--per-snapshot` flag that prints a per-snapshot breakdown (Unique / Shared / Total size) below each guest summary, sorted newest snapshot first.
   - Works with `--all-guests` and with a single-guest `--searchpath`.

@@ -2,7 +2,7 @@
 
 """
 PBS_Chunk_Checker — Sum the actual on-disk size of unique PBS chunks
-for a selected datastore object (namespace/VM/CT).
+for a selected datastore object (namespace, VM, container, or host backup).
 
 Highlights:
 - Uses PBS CLI tools to resolve datastores and inspect index files (*.fidx/*.didx)
@@ -18,7 +18,7 @@ References:
 - Repository: https://github.com/VoltKraft/PBS_Chunk_Checker
 """
 
-__version__ = "2.12.0"
+__version__ = "2.12.1"
 
 import argparse
 import concurrent.futures as futures
@@ -2215,13 +2215,16 @@ def print_snapshot_table(results: List[SnapshotResult]) -> None:
 # Datastore-wide guest discovery and confirmation
 # =============================================================================
 
+BACKUP_TYPES = ("vm", "ct", "host")
+
+
 def discover_guest_paths(scan_root: Path) -> List[Path]:
-    """Return all VM/CT directories under the scan_root, including nested namespaces."""
+    """Return all backup group directories under scan_root, including nested namespaces."""
     guests: List[Path] = []
     seen: Set[Path] = set()
 
     def _scan(base: Path) -> None:
-        for kind in ("vm", "ct"):
+        for kind in BACKUP_TYPES:
             kind_dir = base / kind
             if not kind_dir.is_dir():
                 continue
@@ -2258,39 +2261,26 @@ def discover_guest_paths(scan_root: Path) -> List[Path]:
 
 
 def _extract_guest_location(datastore_root: Path, guest_path: Path) -> Optional[Tuple[str, str, str]]:
-    """Return (namespace, backup_type, backup_id) for a VM/CT directory under datastore_root.
+    """Return (namespace, backup_type, backup_id) for a path within a backup group.
 
-    Namespace is returned without the leading 'ns' component and may be an empty string
-    for the root namespace.
+    Namespace names are joined with slashes for the PBS API. The root namespace
+    is returned as an empty string.
     """
     try:
-        rel = guest_path.relative_to(datastore_root)
+        parts = guest_path.relative_to(datastore_root).parts
     except ValueError:
         return None
 
-    parts = list(rel.parts)
-    if not parts:
-        return None
-
-    backup_type: Optional[str] = None
-    backup_id: Optional[str] = None
     namespace_parts: List[str] = []
+    group_start = 0
+    while group_start + 1 < len(parts) and parts[group_start] == "ns":
+        namespace_parts.append(parts[group_start + 1])
+        group_start += 2
 
-    for idx, part in enumerate(parts):
-        if part in ("vm", "ct"):
-            if idx + 1 >= len(parts):
-                return None
-            backup_type = part
-            backup_id = parts[idx + 1]
-            start_idx = 1 if parts and parts[0] == "ns" else 0
-            namespace_parts = parts[start_idx:idx]
-            break
-
-    if not backup_type or not backup_id:
+    if group_start + 1 >= len(parts) or parts[group_start] not in BACKUP_TYPES:
         return None
 
-    namespace = "/".join(namespace_parts)
-    return namespace, backup_type, backup_id
+    return "/".join(namespace_parts), parts[group_start], parts[group_start + 1]
 
 
 def _load_snapshots_for_namespace(datastore_name: str, namespace: str) -> List[Dict[str, Any]]:
@@ -2369,7 +2359,7 @@ def get_guest_comment_for_path(
 ) -> Optional[str]:
     """Return the latest snapshot comment for a guest (simplified by default).
 
-    Looks up the newest snapshot for the VM/CT identified by guest_path and
+    Looks up the newest snapshot for the backup group identified by guest_path and
     extracts its comment. Best-effort only: returns None on any error.
     Set simplify=False to return the raw comment text.
     """
@@ -2428,7 +2418,7 @@ def _confirm_full_datastore_scan_text(clear_screen: bool = True) -> bool:
         clear_console()
     print("PBS_Chunk_Checker - Full datastore scan\n")
     print("This will traverse every namespace (including nested ones)")
-    print("and analyze each VM and CT individually.")
+    print("and analyze VMs, containers, and host backups individually.")
     print("Depending on the datastore size this can take a long time.\n")
     answer = input("Proceed anyway? [y/N]: ").strip().lower()
     return answer.startswith("y")
@@ -2439,7 +2429,7 @@ def confirm_full_datastore_scan(allow_curses: bool = True, clear_screen_text: bo
     lines = [
         "Scan the entire datastore:",
         "- All namespaces (and nested namespaces) will be traversed.",
-        "- Every VM and CT will be analyzed individually.",
+        "- VMs, containers, and host backups will be analyzed individually.",
         "",
         "Depending on the datastore size this can take a long time.",
     ]
@@ -2599,14 +2589,14 @@ def run_full_datastore_scan(
     scan_root: Optional[Path] = None,
     require_confirmation: bool = True,
 ) -> int:
-    """Analyze every VM/CT under the datastore, print a size overview, and emit CSV when enabled."""
+    """Analyze backup groups, print a size overview, and write CSV reports when enabled."""
     root = scan_root if scan_root is not None else datastore_root
     guests = discover_guest_paths(root)
     guests = sorted(guests, key=lambda p: str(p).lower())
     guest_labels = [_format_guest_label(datastore_root, p) for p in guests]
 
     if not guests:
-        print(f"{ICONS['info']} No VM/CT directories found in this datastore.")
+        print(f"{ICONS['info']} No backup groups found under the scan path.")
         return 0
 
     csv_dir: Optional[Path] = None
@@ -2883,7 +2873,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # ----- Parse CLI arguments and compute runtime defaults -----
     parser = argparse.ArgumentParser(
         description=(
-            "Sum actual used chunk sizes for a given PBS datastore object (namespace/VM/CT). "
+            "Sum actual used chunk sizes for a PBS namespace, VM, container, or host backup. "
             "When started without parameters, an interactive menu is shown."
         )
     )
@@ -2917,9 +2907,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--all-guests",
         action="store_true",
         help=(
-            "Analyze the entire datastore and show per-guest usage "
-            "(includes nested namespaces) and write a CSV report "
-            "(unless --no-csv is set)."
+            "Show usage for each VM, container, and host backup in the datastore "
+            "or selected namespace, including nested namespaces. "
+            "Write a CSV report unless --no-csv is set."
         ),
     )
     default_threads = min(32, (os.cpu_count() or 4) * 2)

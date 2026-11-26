@@ -5,11 +5,11 @@
 ## 🧩 Overview
 
 The **PBS_Chunk_Checker** is a diagnostic and analysis tool for **Proxmox Backup Server (PBS)** datastores.  
-It calculates the **real disk space usage** of a specific **namespace**, **VM**, or **container** by summing only the **unique chunk files** that are actually referenced.
+It calculates the **real disk space usage** of a **namespace**, **VM**, **container**, or **host backup** by summing the **unique chunk files** it references.
 
 This allows accurate insights into space consumption per tenant or object — useful for chargeback, reporting, and storage optimization.
 
-**Current version:** 2.12.0 (`./pbs_chunk_checker.py --version`)
+**Current version:** 2.12.1 (`./pbs_chunk_checker.py --version`)
 
 See full changes in `CHANGELOG.md`.
 
@@ -58,7 +58,10 @@ Examples:
 # VM inside a namespace
 ./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace/vm/100
 
-# Per-guest summary for a datastore (all namespaces)
+# Host backup group at the datastore root
+./pbs_chunk_checker.py --datastore MyDatastore --searchpath /host/fileserver
+
+# Per-group summary for VMs, containers, and host backups (all namespaces)
 ./pbs_chunk_checker.py --datastore MyDatastore --all-guests
 
 # Per-guest summary with CSV output directory
@@ -67,7 +70,7 @@ Examples:
 # Per-guest summary limited to one namespace (and its nested namespaces)
 ./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace --all-guests
 
-# Per-snapshot breakdown for a single VM/CT
+# Per-snapshot breakdown for a single backup group
 ./pbs_chunk_checker.py --datastore MyDatastore --searchpath /ns/MyNamespace/vm/100 --per-snapshot
 
 # Per-snapshot breakdown for every guest in the datastore (writes an extra snapshots_*.csv)
@@ -88,7 +91,7 @@ Run without parameters to open a menu for selecting the datastore and the search
 In interactive mode you can:
 - Select an existing datastore from the list or enter one manually
 - Navigate the datastore directory structure and choose the search path (or enter it manually)
-- Scan all guests within the current path (datastore root or a selected namespace) to get a per-guest size overview, sorted by usage
+- Use **Scan all guests** to list VM, container, and host backup groups by size within the current path (datastore root or a selected namespace)
 - Open the Options overlay (press `o`) to adjust threads, toggle emoji output, enable guest comments next to IDs, and set the CSV output directory for full datastore scans
 - When starting the full datastore scan you will see a warning and must confirm with `Proceed anyway? [y/N]` (English prompt) because the run can take a long time.
 
@@ -117,7 +120,7 @@ More threads can significantly speed up evaluations on fast storage and when man
 Defaults: `2 × CPU cores`, capped at `32`.
 
 You can change the value in interactive mode by pressing `o` (Options) or by passing `--threads N` on the command line. Within the Options overlay you can also toggle emoji output (equivalent to `--no-emoji`) using the Space key.
-You can additionally enable showing a short guest label derived from the latest snapshot comment next to each VM/CT ID via the Options overlay or the `--show-comments` flag.
+Use the Options overlay or `--show-comments` to display a short label from each backup group's latest snapshot comment.
 
 ### Portable execution (no local file)
 Stream the script from GitHub and execute it immediately.
@@ -145,11 +148,11 @@ Notes:
 |--------|-------------|-------------|---------|
 | `--datastore` | Required (script mode) | PBS datastore name that contains the object you want to analyse | — |
 | `--searchpath` | Required (script mode) | Object path inside the datastore (e.g. `/ns/MyNamespace` or `/ns/MyNamespace/vm/100`) | — |
-| `--all-guests` | Optional | Scan the entire datastore (or only the namespace given via `--searchpath`), print a per-guest size summary, and write a CSV report unless `--no-csv` is set (requires `--datastore`) | — |
+| `--all-guests` | Optional | Summarize VM, container, and host backup groups across the datastore or within the namespace given via `--searchpath`, including nested namespaces. Write a CSV report unless `--no-csv` is set. Requires `--datastore`. | — |
 | `--threads` | Optional | Degree of parallelism for parsing index files and statting chunks | `2 × CPU cores (max 32)` |
 | `--no-emoji` | Optional | Replace emoji icons in CLI output with ASCII labels | Emoji output |
 | `--silent` | Optional | Suppress all output (useful for cron jobs; cannot be combined with `--no-csv`) | Disabled |
-| `--show-comments` | Optional | Show a short guest label derived from the latest snapshot comment next to each VM/CT in per-guest summaries and interactive path selection | Disabled |
+| `--show-comments` | Optional | Show a short label from each backup group's latest snapshot comment in summaries and interactive path selection | Disabled |
 | `--no-csv` | Optional | Disable writing the CSV report for `--all-guests` (cannot be combined with `--silent`) | Enabled |
 | `--csv-dir` | Optional | Directory where the CSV report for `--all-guests` is written (ignored with `--no-csv`) | Current working directory |
 | `--per-snapshot` | Optional | Print a per-snapshot breakdown (Unique / Shared / Total size) below each guest summary; with `--all-guests` an additional `snapshots_*.csv` is written | Disabled |
